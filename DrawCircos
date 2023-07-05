@@ -1,0 +1,1553 @@
+#!/usr/bin/bash
+
+#conda activate circos
+
+
+##Input file list
+# gff3="Spohua.genome.gff3" #gff3文件
+# genome="Spohua.genome.fa" #基因组文件
+# species="Spohua" #拉丁学名
+# abbr="SPO" #三字符缩写
+
+# ##Default setting:
+# Chr="Chr" #染色体的前缀字符
+# window=1000000 #滑动窗大小：默认是1M
+# type="gene" #gff3文件的第3列的字段。一般是（gene或mRNA）
+# keyid=1 #gff3文件的第9列的第n个字段，一般是第1个或第2个
+
+
+# ##Software PATH
+# samtools="/share/home/chaimao1/soft/samtools/samtools-1.10/bin/samtools"
+# bedtools="/share/home/chaimao1/soft/bedtools/bedtools"
+
+LTRfind_github="https://github.com/chaimol/bio_code/tree/master/pipline/LTRfind"
+KK4D_github="https://github.com/chaimol/bio_code/tree/master/pipline/KK4D"
+
+
+
+#karyotype.Spo.txt (染色体长度配置文件) *
+#circos.conf (主要的conf文件，画图时，通过此文件来调用其他配置文件)*
+#ticks.conf (刻度控制文件)*
+
+#getwindow genome.fa windowsize prefix chrstring
+function getwindow(){
+	case $1 in 
+		-h|--help)
+			echo "
+			Usage:
+			getwindow genome.fa windowsize prefix
+			getwindow genome.fa windowsize prefix chrstring
+			
+			Example:
+			getwindow Spo.fa 1000000 Spo
+			getwindow PyrusCommunis_BartlettDHv2.0.fasta 2000000 Pco
+			getwindow Spo.fa 1000000 Spo Chr
+			getwindow TM-1.fa 1000000 TM_1 A D
+			
+			Output:
+			prefix.genome.txt
+			prefix.window
+			
+			Notes:
+			genomefile can be *.fa or *.fa.gz
+			如果是多倍体，则直接在后面依次罗列亚组的字符即可
+			如果不提供chrstring的话，则默认是基因组的所有序列都分析
+			"
+			exit 1
+			;;
+			*)
+			if ! [ -e $1 ];then
+				echo "The input genome file is not exist!"
+				exit 1
+			fi
+			;;
+	esac
+	#确保是三个参数
+	if [ $# -lt 3 ];then
+		echo "
+		Please check the number of parameters you entered！
+		Usage:getwindow genome.fa windowsize prefix！
+		"
+		exit 1
+	fi
+	#确定最小窗口大小必须大于1
+	if [ $2 -lt 1 ];then
+		echo "Please make sure the windowsize is more than 1!"
+		exit 1
+	fi
+	genome=$1
+	local window=$2
+	local prefix=$3
+	#准备genome.txt
+	samtools faidx ${genome}
+	
+	##定义分析一个字符串的染色体的窗口文件
+	function get1chrstrwindow(){
+		chrstr=$1
+		###输出：prefix.window 滑动窗文件
+		cat ${genome}.fai |cut -f 1-2| fgrep ${chrstr}|sort -V >${prefix}.${chrstr}.genome.txt
+		#制作滑动窗
+		bedtools makewindows -g ${prefix}.${chrstr}.genome.txt -w ${window} >${prefix}.${chrstr}.window.CHR #默认window为1M
+	}
+	
+	if [ $# -eq 3 ];then
+		#用户不提供染色体字符，就对整个基因组进行分析。
+		cat ${genome}.fai |cut -f 1-2|sort -V >${prefix}.genome.txt
+		bedtools makewindows -g ${prefix}.genome.txt -w ${window} >${prefix}.window #默认window为1M
+	else
+		# 循环从第4个参数开始，将每个参数添加到列表中
+		for (( i=4; i<=$#; i++ ))
+		do
+			params+=("${!i}")
+		done
+		# 打印列表中的所有参数
+		echo "开始分析染色体字符:"
+		for param in "${params[@]}"
+		do
+			echo $param
+			get1chrstrwindow $param
+		done
+		cat ${prefix}.*.window.CHR > ${prefix}.window
+		cat ${prefix}.*.genome.txt > ${prefix}.genome.txt
+	fi
+	if [ $? -eq 0 ];then
+		echo -e "
+		done! 
+		Output file:
+		${prefix}.genome.txt #染色体名称和长度文件，共2列
+		${prefix}.window #基因组的滑动窗的bed文件，共3列
+		"
+	else
+		echo -e "
+		ERROR:in run :
+		$0
+		ERROR in module getwindow
+		"
+	fi
+}
+
+#getGC genomefile windowfile
+function getGC(){
+	case $1 in 
+		-h|--help)
+			echo -e "
+			Usage:
+			getGC genomefile windowfile
+			
+			Ouput file:
+			GC_num.txt #基因组GC含量绘图文件
+			"
+			exit 1
+			;;
+		*)
+			if [ $# -ne 2 ];then
+				echo "Usage:getGC genomefile windowfile!"
+				exit 1
+			fi
+		;;
+	esac
+	if ! [ -e $1 ];then
+		echo "ERROR:Input file $1 is not exist!"
+		exit 1
+	fi
+	if ! [ -e $2 ];then
+		echo "ERROR:Input file $2 is not exist!"
+		exit 1
+	fi
+	genomefile=$1
+	windowfile=$2
+	
+	bedtools nuc -fi ${genomefile} -bed ${windowfile} |cut -f 1-3,5|sed '1d' >GC_num.txt
+	if [ $? -eq 0 ];then
+		echo -e "
+		done!
+		Output file is :
+		GC_num.txt #基因组GC含量绘图文件
+		"
+	else
+		echo "ERROR in module getGC!"
+		exit 1
+	fi
+}
+
+#genedensity gff3file windowfile Chrstring
+function genedensity(){
+	case $1 in 
+	-h|--help)
+		echo -e "
+		Usage:
+		genedensity gff3file windowfile
+		genedensity gff3file windowfile Chrstring
+		genedensity gff3file windowfile Chrstring1 Chrstring2
+		
+		Example:
+		genedensity Spo.gff3 Spo.window
+		genedensity Spo.gff3 Spo.window Chr
+		genedensity TM-1.gff3 TM_1.window A D
+		
+		Output:
+		genes.bed #所有第3列字符是gene的bed文件，3列，染色体，起始，终止位置
+		genes_num.txt #基因密度绘图文件
+		
+		Notes:
+		windowfile is the output file by getwindow.
+		如果不提供chrstring的话，则默认是基因组的所有序列都分析
+		如果是多倍体，则直接在后面依次罗列亚组的字符即可
+		"
+		exit 1
+		;;
+	*)
+		if [ $# -lt 2 ];then
+			echo "Usage:genedensity gff3file windowfile Chrstring"
+			exit 1
+		fi
+		;;
+	esac
+	if ! [ -e $1 ];then
+			echo "Input gff3 file $1 is not exist!"
+			exit 1
+		fi
+	echo "pass the gff3file check!"
+	if ! [ -e $2 ];then
+		echo "Input windowfile $2 is not exist!"
+		exit 1
+	fi
+	echo "pass the windowfile check !"
+	gff3=$1
+	windowfile=$2
+	if [ $# -lt 3 ];then
+		###基因密度bed,输出genes_num.txt
+		grep '[[:blank:]]gene[[:blank:]]' ${gff3} | awk -F "\t" '{print $1"\t"$4"\t"$5}'|sort -k1 >genes.bed
+		bedtools coverage -a ${windowfile} -b genes.bed |cut -f 1-4 >genes_num.txt
+	else
+		# 循环从第3个参数开始，将每个参数添加到列表中
+		for (( i=3; i<=$#; i++ ))
+		do
+			params+=("${!i}")
+		done
+		# 打印列表中的所有参数
+		echo "开始分析染色体字符:"
+		for chr in "${params[@]}"
+		do
+			echo $chr
+			###基因密度bed,输出genes_num.txt
+			grep '[[:blank:]]gene[[:blank:]]' ${gff3} | awk -F "\t" '{print $1"\t"$4"\t"$5}'|grep ${chr} |sort -k1 >genes.${chr}.gene.bed
+		done
+		cat genes.*.gene.bed > genes.bed
+		bedtools coverage -a ${windowfile} -b genes.bed |cut -f 1-4 >genes_num.txt
+	fi
+	if [ $? -eq 0 ];then
+		echo -e "
+		done!
+		Output file:
+		genes.bed #所有的基因的bed文件
+		genes_num.txt #基因密度文件
+		"
+	else
+		echo "ERROR:in module genedensity!"
+		exit 1
+	fi
+}
+
+#getvcf vcffile windowfile prefixname
+function getvcf(){
+	case $1 in
+		-h|--help)
+		echo -e "
+		Usage:
+		getvcf vcffile windowfile prefixname
+		
+		Example:
+		getvcf All.chr.SNP.vcf Spo.window SNP
+		getvcf All.chr.INDEL.vcf Spo.window INDEL
+		getvcf All.chr.vcf Spo.window Allchr
+		
+		Output:
+		prefixname.vcf.bed 
+		prefixname_num.txt #vcf的绘图文件
+		
+		Notes:
+		windowfile is the output file by getwindow
+		"
+		exit 1
+		;;
+		*)
+			if [ $# -ne 3 ];then
+				echo "Usage:getvcf vcffile windowfile prefixname"
+				exit 1
+			fi
+		;;
+	esac
+	if ! [ -e $1 ];then
+	echo "Error:input the vcf file $1 is not exist!"
+	exit 1
+	fi
+	echo "pass the check of vcffile!"
+	if ! [ -e $2 ];then
+		echo "Error:input the windowfile $2 is not exist!"
+		exit 1
+	fi
+	echo "pass the check of windowfile!"
+
+	#输入1：vcf的文件，输入2：输入文件名前缀 输出：前缀_num.txt
+	local vcffile=$1
+	local windowfile=$2
+	local type=$3
+	cat ${vcffile}|awk '{print $1"\t"$2"\t"$2}'|sed '1d' >${type}.vcf.bed
+	bedtools coverage -a ${windowfile} -b ${type}.vcf.bed |cut -f 1-4 >${type}_num.txt
+	if [ $? -eq 0 ];then
+		echo -e "
+		done!
+		Output file:
+		${type}.vcf.bed
+		${type}_num.txt
+		"
+	else
+		echo "
+		Error: in module getvcf!
+		"
+		exit 1
+	fi
+}
+
+#getLAI LAIfile
+function getLAI(){
+	case $1 in 
+		-h|--help)
+		echo -e "
+		Usage:
+		getLAI LAIfile
+		
+		Example:
+		getLAI Spohua.fa.out.LAI
+		
+		Output:
+		LAI_num.txt
+		
+		Notes:
+		input LAI file can be get from LTRfind. More info in ${LTRfind_github}.
+		"
+		exit 1
+		;;
+		*)
+		if [ $# -ne 1 ];then
+			echo "Use getLAI -h or --help for help!"
+			exit 1
+		fi
+		;;
+	esac
+	if ! [ -e $1 ];then
+		echo "ERROR: Input file LAI $1 is not exist!"
+		exit 1
+	fi
+	local LAI=$1
+	#输入LAI文件，输出LAI_num.txt
+	cat ${LAI}|cut -f 1,2,3,7 |sed '1,2d' >LAI_num.txt
+	if [ $? -eq 0 ];then
+		echo -e "
+		done!
+		Output file:
+		LAI_num.txt
+		"
+	else
+		echo "ERROR:in module getLAI!"
+		exit 1
+	fi
+}
+
+#getIDbed gff3file type keyid
+function getIDbed(){
+	#Chr="Chr"
+	case $1 in 
+		-h|--help)
+		echo -e "
+		Usage:
+		getIDbed gff3file type keyid Chrstring
+		getIDbed gff3file type keyid
+		getIDbed gff3file type 
+		getIDbed gff3file 
+		
+		Default:
+		type:gene
+		keyid:1
+		
+		Example:
+		getIDbed Ath.genome.gff3 gene 1 Chr
+		getIDbed Ath.genome.gff3 gene 1 chr
+		getIDbed Ath.genome.gff3 gene 1
+		getIDbed Ath.genome.gff3 gene 2
+		getIDbed Ath.genome.gff3 mRNA 1
+		getIDbed Ath.genome.gff3 mRNA 2
+		getIDbed Ath.genome.gff3 mRNA
+		getIDbed TM-1.genome.gff3 mRNA 1 A D
+		
+		Notes:
+		type should be a string in gff3 file cloumn 3th , keyid should be a Integer number,keyid corresponds to the number field in the 9th column of the gff file.
+		please make sure your type and keyid is setting right,so that the output geneid is right styles.
+		如果是多倍体，则直接在后面依次罗列亚组的字符即可
+		如果不提供chrstring的话，则默认是基因组的所有序列都分析
+		
+		Output:
+		genes.ID.bed 输出文件是筛选后得到的是4列，chr start end geneid 
+		
+		注意：genes.ID.bed和genes.bed是不同的文件，后者只有三列，没有geneid
+		";
+		exit 1
+		;;
+		*)
+		if [ $# -lt 1 ];then
+			echo "Usage:getIDbed gff3file type keyid Chrstring"
+			exit 1
+		fi
+		;;
+	esac
+	#判断是否输入了gff3文件
+	if ! [ -e $1 ] ;then
+		echo "Error:Input the gff3 file not exist!"
+		exit 1
+	fi
+	if [ $# -eq 0 ];then
+		echo "please input the gff3 file!"
+		exit 1
+	fi
+	echo "pass the gff3 check!"
+	local gff3=$1
+	local type=$2
+	local keyid=$3
+
+##设置默认的值：tyep:gene,keyid:1
+	if [ $# -eq 1 ];then
+		local keyid=1
+		local type="gene"
+	fi
+	if [ $# -eq 2 ];then
+		local keyid=1
+	fi
+	if [ $# -lt 4 ];then #没有第4个参数，即chr字符
+		cat ${gff3}|grep "[[:blank:]]${type}[[:blank:]]"|awk -F "\t" -v keyid="${keyid}" 'split($9,a,";") split(a[keyid],b,"=") {print $1"\t"$4"\t"$5"\t"b[2]}' >genes.ID.bed
+	else
+		# 循环从第4个参数开始，将每个参数添加到列表中
+		for (( i=4; i<=$#; i++ ))
+		do
+			params+=("${!i}")
+		done
+		# 打印列表中的所有参数
+		echo "开始分析染色体字符:"
+		for chr in "${params[@]}"
+		do
+			echo $chr
+			cat ${gff3}|grep "[[:blank:]]${type}[[:blank:]]"|awk -F "\t" -v keyid="${keyid}" 'split($9,a,";") split(a[keyid],b,"=") {print $1"\t"$4"\t"$5"\t"b[2]}'|grep ${chr} >genes.${chr}.ID.bed
+		done
+		cat genes.*.ID.bed >genes.ID.bed
+	fi
+	if [ $? -eq 0 ];then
+		echo "success!Output file is genes.ID.bed "
+	else
+		echo -e "
+		Error:
+		in  module of getIDbed  
+		"
+		exit 1
+	fi
+}
+
+#getcoline colinefile genes.ID.bed
+function getcoline(){
+	case $1 in
+		-h|--help)
+			echo -e "
+			Usage:
+			getcoline colinefile genes.ID.bed softwarename
+			getcoline colinefile genes.ID.bed
+			getcoline colinefile
+			
+			Example:
+			getcoline Spo_Fve.collinearity genes.ID.bed MSCanX
+			getcoline Spo_Mdo.anchors genes.ID.bed jcvi
+			getcoline Spo_Mdo.anchors genes.ID.bed
+			getcoline Spo_Mdo.anchors
+			
+			Default：
+			genes.ID.bed:genes.ID.bed
+			softwarename:jcvi
+			
+			Notes:
+			If your collinearity file is neither from jcvi nor from MSCanX, you only need to place the gene pairs in the two columns of the tab division as the input file, and no need input the softwarename.
+			You also can be get coline file , by KK4D coline .More info in ${KK4D_github}.
+			genes.ID.bed can be get by getIDbed.
+			
+			Output:
+			coline_num.txt 基因组的共线性绘图文件
+			"
+			exit 1
+			;;
+		*)
+		#判断是否输入了coline文件
+		if ! [ -e $1 ];then
+			echo "Error:Input the coline file $1 is not exist!"
+			exit 1
+		fi
+		if [ $# -eq 0 ];then
+			echo "please input the coline file!"
+			exit 1
+		fi
+		echo "pass the coline check!"
+			;;
+	esac
+	
+	##输入1：共线性文件 输入2：软件名称jcvi,MSCanX,other
+	local colinefile=$1
+	local genesbed=$2
+	local software=$3
+
+	#判断是否已经生成了${prefix}.genes.ID.bed,如果没有则，生成。
+	if [ -e $2 ];then
+		genesbed=$2
+	else
+		genesbed="genes.ID.bed" #设置默认的值
+	fi
+	
+	if [ -e coline_num.txt ];then
+		echo "Delete the old version coline_num.txt!"
+		rm -rf coline_num.txt
+	fi
+	trap 'rm -f "$coline_temp"' EXIT  #退出时，删除临时文件(trap是根据后面的系统信号，执行前面的命令)
+	coline_temp=$(mktemp -p ${PWD}) || exit 1  #创建临时文件
+	#####从共线性的基因对，提取整合成circos的bed格式。默认是第1,2列是基因对
+	function fastnormal(){ #优化了normal函数，之前的版本的I/O太多导致运行较慢
+		grep -v \# "${colinefile}" | while read -r line;
+		do
+		gene_array=($line)
+		gene1_pos=$(awk -v gene="${gene_array[0]}" '$0 ~ gene {print $1 "\t" $2 "\t" $3}' "${genesbed}")
+		gene2_pos=$(awk -v gene="${gene_array[1]}" '$0 ~ gene {print $1 "\t" $2 "\t" $3}' "${genesbed}")
+		bed="${gene1_pos} ${gene2_pos}"
+		echo "${bed}" >> "${coline_temp}"
+		done
+		awk 'NF==6 {print $0}' "${coline_temp}" | tr " " "\t" > coline_num.txt
+	}
+	#####从MSCanX共线性的基因对，提取整合成circos的bed格式。提取第2和3列
+	function MSC(){
+		grep -v \# "${colinefile}"| while read -r line;
+		do
+				gene_array=($line)
+				gene1_pos=$(awk -v gene="${gene_array[1]}" '$0 ~ gene {print $1 "\t" $2 "\t" $3}' "${genesbed}")
+				gene2_pos=$(awk -v gene="${gene_array[2]}" '$0 ~ gene {print $1 "\t" $2 "\t" $3}' "${genesbed}")
+				bed="${gene1_pos} ${gene2_pos}"
+				echo "${bed}" >> "${coline_temp}"
+		done
+		awk 'NF==6 {print $0}' "${coline_temp}" | tr " " "\t" > coline_num.txt
+	}
+
+	case ${software} in 
+		jcvi)
+		fastnormal
+		;;
+		MSCanX|MScanX)
+		MSC
+		;;
+		*)
+		fastnormal
+		;;
+	esac
+	if [ $? -eq 0 ];then
+		echo -e "done!
+		Output file is :
+		coline_num.txt"
+	else
+		echo -e "
+		Error: in mordule of getcoline!"
+		exit 1
+	fi
+}
+
+#getCopia LTRfile windowfile
+function getCopia(){
+		case $1 in
+		-h|--help)
+			echo -e "
+			Usage:
+			getCopia LTRfile windowfile
+			
+			Example:
+			getfullLTR Spohua.fa.pass.list Spo.window
+			
+			Output:
+			Copia_num.txt
+			
+			Notes:
+			windowfile can be get by getwindow
+			LTRfile can be get by LTRfind. More info in ${LTRfind_github}.
+			"
+			exit 1
+			;;
+			*)
+			if [ $# -ne 2 ];then
+				echo "Usage:getCopia LTRfile windowfile!"
+				exit 1
+			fi
+			;;
+	esac
+	if ! [ -e $1 ];then
+		echo "ERROR: Input LTRfile $1 is not exist!"
+		exit 1
+	fi
+	if ! [ -e $2 ];then
+		echo "ERROR: Input windowfile $2 is not exist!"
+		exit 1
+	fi
+	LTRfile=$1
+	windowfile=$2
+	# ###Copia类型的转座子
+	cat ${LTRfile} |grep Copia |cut -f1|tr : "\t"|sed 's/\.\./\t/g' >Copia.bed
+	bedtools coverage -a ${windowfile} -b Copia.bed |cut -f 1-4 >Copia_num.txt
+	if [ $? -eq 0 ];then
+		echo "done!
+		Output file is :
+		Copia.bed 
+		Copia_num.txt"
+	else
+		echo "ERROR:in module getCopia!"
+		exit 1
+	fi
+}
+
+#getGypsy LTRfile windowfile
+function getGypsy(){
+		case $1 in
+		-h|--help)
+			echo -e "
+			Usage:
+			getGypsy LTRfile windowfile
+			
+			Example:
+			getGypsy Spohua.fa.pass.list Spo.window
+			
+			Output:
+			Gypsy_num.txt
+			
+			Notes:
+			windowfile can be get by getwindow
+			LTRfile can be get by LTRfind.More info in ${LTRfind_github}.
+			"
+			exit 1
+			;;
+			*)
+				if [ $# -ne 2 ];
+				then
+					echo "Usage:getGypsy LTRfile windowfile!"
+					exit 1
+				fi
+			;;
+	esac
+	if ! [ -e $1 ];then
+		echo "Input LTRfile $1 is not exist!"
+		exit 1
+	fi
+	if ! [ -e $2 ];then
+		echo "ERROR: Input windowfile $2 is not exist!"
+		exit 1
+	fi
+	LTRfile=$1
+	windowfile=$2
+	# ###Gypsy类型的转座子
+	cat ${LTRfile}|grep Gypsy |cut -f1|tr : "\t"|sed 's/\.\./\t/g' >Gypsy.bed
+	bedtools coverage -a ${windowfile} -b Gypsy.bed |cut -f 1-4 >Gypsy_num.txt
+	if [ $? -eq 0 ];then
+		echo "done!
+		Ouput file is:
+		Gypsy.bed
+		Gypsy_num.txt"
+	else
+		echo "ERROR:in module getGypsy!"
+		exit 1
+	fi
+}
+
+#getfullLTR LAIfile
+function getfullLTR(){
+	# ###完整LTR的百分比（每个windowsize的完整LTR的百分比）
+	case $1 in
+		-h|--help)
+			echo -e "
+			Usage:
+			getfullLTR LAIfile
+			
+			Example:
+			getfullLTR Spohua.fa.out.LAI
+			
+			Output:
+			full_LTR_num.txt
+			
+			Notes:
+			windowfile can be get by getwindow
+			LAIfile can be get by LTRfind. More info in ${LTRfind_github}.
+			"
+			exit 1
+			;;
+			*)
+			if [ $# -ne 1 ];then
+				echo "Usage:getfullLTR LAIfile "
+				exit 1
+			fi
+			;;
+	esac
+	if ! [ -e $1 ];then
+		echo "Input LAIfile $1 is not exist!"
+		exit 1
+	fi
+	cat $1|awk '{print $1"\t"$2"\t"$3"\t"$4*100}'|sed '1,2d' >full_LTR_num.txt
+	if [ $? -eq 0 ];then
+		echo "done!
+		Ouput file is:
+		full_LTR_num.txt"
+	else
+		echo "ERROR:in module getfullLTR!"
+		exit 1
+	fi
+}
+
+#getallLTR LAIfile
+function getallLTR(){
+	###所有LTR的百分比（每个windowsize的LTR的百分比）
+	case $1 in
+		-h|--help)
+			echo -e "
+			Usage:
+			getallLTR LAIfile
+			
+			Example:
+			getallLTR Spohua.fa.out.LAI
+			
+			Output:
+			LTR_num.txt
+			
+			Notes:
+			windowfile can be get by getwindow
+			LAIfile can be get by LTRfind. More info in ${LTRfind_github}.
+			"
+			exit 1
+			;;
+		*)
+			if [ $# -ne 1 ];then
+				echo "Usage:getfullLTR LAIfile "
+				exit 1
+			fi
+			;;
+	esac
+	if ! [ -e $1 ];then
+		echo "Input LAIfile $1 is not exist!"
+		exit 1
+	fi
+	cat $1|awk '{print $1"\t"$2"\t"$3"\t"$5*100}'|sed '1,2d' >LTR_num.txt
+	if [ $? -eq 0 ];then
+		echo "done!
+		Ouput file is:
+		LTR_num.txt"
+	else
+		echo "ERROR:in module getallLTR!"
+		exit 1
+	fi
+}
+
+#bed2num bedfile windowfile prefix
+function bed2num(){
+	case $1 in
+		-h|--help)
+			echo -e "
+			Usage:
+			bed2num bedfile windowfile prefix outtype
+			
+			Example:
+			bed2num genes.bed Spo.window genedensity
+			bed2num genes.bed Spo.window genedensity num
+			bed2num genes.bed Spo.window genedensity rate
+			
+			Output:
+			prefix_num.txt
+			
+			Default:
+			outtype:num
+			
+			Notes:
+			windowfile can be get by getwindow
+			bed file at least have 3 columns. 
+			
+			bedfile styles:
+			chr start end 
+			chr1 45667 77366 
+			chr1 877667 977316
+			"
+			exit 1
+			;;
+			*)
+				if [ $# -lt 3 ];
+				then
+					echo "Usage:bed2num bedfile windowfile prefix!"
+					exit 1
+				fi
+			;;
+	esac
+	if ! [ -e $1 ];then
+		echo "Input bedfile $1 is not exist!"
+		exit 1
+	fi
+	columnnum=`cat $1|awk -F " " 'NF<3 {print $0}'|wc -l`
+	if [ $columnnum -ne 0 ];then
+		echo "ERROR in bed file $1,
+		Please make sure your bed file at least have 3 columns.and each column dividing symbol is 1 space"
+		exit 1
+	fi
+	if ! [ -e $2 ];then
+		echo "ERROR: Input windowfile $2 is not exist!"
+		exit 1
+	fi
+	#处理bed文件的第2列和第3列，如果第2列>第3列，则需要调整顺序，否则bedtools会报错
+	trap 'rm -f "$bed_temp"' EXIT  #退出时，删除临时文件(trap是根据后面的系统信号，执行前面的命令)
+	bed_temp=$(mktemp -p ${PWD}) || exit 1  #创建临时文件
+	awk '{if ($2>$3) {print $1"\t"$3"\t"$2} else {print $1"\t"$2"\t"$3}}' $1 > ${bed_temp}
+	local bedfile=${bed_temp}
+	local windowfile=$2
+	local prefix=$3
+	if [ $# -eq 3 ];then
+		outtype="num"
+	else
+		outtype=$4
+	fi
+	case ${outtype} in
+		-n|num)
+			#获取bed文件对应的window分割后的文件，是circos的输入文件
+			bedtools coverage -a ${windowfile} -b ${bedfile} |cut -f 1-4 >${prefix}_num.txt
+			;;
+		-r|rate)
+			#获取bed文件对应的window分割后的文件，是circos的输入文件
+			bedtools coverage -a ${windowfile} -b ${bedfile} |cut -f 1-3,7 >${prefix}_num.txt
+		;;
+		*)
+			echo "ERROR in module bed2num!"
+	esac
+	if [ $? -eq 0 ];
+	then
+		echo "done!
+		Ouput file is:
+		${prefix}_num.txt"
+	else
+		echo "ERROR:in module bed2num!"
+		exit 1
+	fi
+}
+#fpkm bamfile windowfile prefix
+function fpkm(){
+	case $1 in 
+		-h|--help)
+			echo -e "
+			Usage:
+			fpkm bamfile windowfile prefix
+			
+			Example:
+			fpkm S1.bam Spo.window S1
+			
+			Output:
+			prefix.reads
+			prefix.fpkm
+			"
+			exit 1
+			;;
+			*)
+				if ! [ $# -eq 3 ];then
+					echo "Usage:fpkm bamfile windowfile prefix"
+					exit 1
+				fi
+			;;
+	esac
+	bamfile=$1
+	windowfile=$2
+	prefix=$3
+	if [ -e ${bamfile} ] && [ -e ${windowfile} ];then
+		echo "pass the check of input!"
+	else
+		echo "Inputfile ${bamfile} or ${windowfile} is not exist!"
+		exit 1
+	fi
+	windowsize=`cat ${windowfile}|grep -v ^#|head -1|awk '{print ($3-$2)/1000}'`
+	trap 'rm -rf "$tempbed"' EXIT
+	tempbed=$(mktemp -p ${PWD} tempbed.XXXXX) ||exit 1
+	bedtools bamtobed -i ${bamfile} >${tempbed}
+	bedtools coverage -a ${windowfile} -b ${tempbed} >${prefix}.reads
+	local reads_Nsum=`cat ${prefix}.reads | awk '{sum=sum+$5}END{print sum}'` 
+	cat ${prefix}.reads | awk -v windowsize=${windowsize} -v sum=${reads_Nsum} '{print $1"\t"$2"\t"$3"\t"$4/(sum*windowsize/1000000)}' > ${prefix}.fpkm
+	
+	if [ $? -eq 0 ];then
+		echo -e "done!
+		Output file is:
+		${prefix}.fpkm"
+	else
+		echo "ERROR in module fpkm!"
+		exit 1
+	fi
+}
+
+#karyotype
+function karyotype(){
+	case $1 in
+		-h|--help)
+		echo -e "
+		Usage:
+		karyotype genomelengthfile
+		
+		Example:
+		karyotype ${prefix}.genome.txt
+		
+		Output:
+		genome.info
+		karyotype.txt
+		
+		Notes:
+		genomelengthfile can be get by getwindow
+		"
+		exit 1
+		;;
+		*)
+			if [ $# -ne 1 ];then
+				echo "Usage:karyotype ${prefix}.genome.txt"
+				exit 1
+			fi
+		;;
+	esac
+	if ! [ -e $1 ];then
+		echo "ERROR:input genomelength file $1 is not exist!"
+		exit 1
+	fi
+	genomelengthfile=$1
+	##生成配置染色体文件
+	awk '{print "chr - "$1" "$1" 0 "$2" "$1}' ${genomelengthfile} >karyotype.txt
+	if [ $? -eq 0 ];then
+		echo "done!
+		Ouput file is:
+		karyotype.txt"
+	else
+		echo "ERROR in module karyotype!"
+		exit 1
+	fi
+}
+
+#confcoline karyotype.txt
+function confcoline(){
+	case $1 in
+		-h|--help)
+			echo -e "
+			Usage:
+			confcoline karyotype.txt total_number
+			confcoline total_number
+			
+			Default:
+			karyotype.txt:karyotype.txt
+			total_number:Integer, 总圈数,也是从外道内的最内圈的圈数
+			
+			Output:
+			coline.conf.txt
+			"
+			exit 1
+			;;
+			*)
+			if [ $# -eq 1 ];then
+				karyotype="karyotype.txt"
+				number=$1
+				total_number=$1
+			else
+				karyotype=$1
+				number=$2
+				total_number=$2
+			fi
+			;;
+	esac
+	if ! [ -e ${karyotype} ];then
+		echo "ERROR: file ${karyotype} is not exist,please use -k/karyotype build it at first!"
+		exit 1
+	fi
+	function cleanup(){
+		rm -rf "$colinehead";
+		rm -rf "$colinemiddle";
+		rm -rf "$colineend"
+	}
+	trap cleanup EXIT
+	colinehead=$(mktemp -p ${PWD}) || exit 1
+	colinemiddle=$(mktemp -p ${PWD}) || exit 1
+	colineend=$(mktemp -p ${PWD}) || exit 1
+	
+	getR0R1 ${number} ${total_number}
+	echo -e "
+##共线性图
+<links>
+<link>
+file          = coline_num.txt #共线性文件
+radius        = ${R1}r #外圈半径
+color         = blue_a4 #默认颜色
+thickness = 1p #定义线条的粗细
+ribbon = yes
+######rules指定线条的颜色，
+<rules>
+" >${colinehead}
+
+echo -e "
+</rules>
+</link>
+</links>
+">${colineend}
+##set the color for chromosomes color
+chr_color=(rdylgn-11-div-1 rdylgn-11-div-2 rdylgn-11-div-3 rdylgn-11-div-4 rdylgn-11-div-5 rdylgn-11-div-6 rdylgn-11-div-7 rdylgn-11-div-8 rdylgn-11-div-9 rdylgn-11-div-10 rdylgn-11-div-11 rdylbu-11-div-1 rdylbu-11-div-2 rdylbu-11-div-3 rdylbu-11-div-4 rdylbu-11-div-5 rdylbu-11-div-6 rdylbu-11-div-7 rdylbu-11-div-8 rdylbu-11-div-9 rdylbu-11-div-10 rdylbu-11-div-11 rdbu-11-div-1 rdbu-11-div-2 rdbu-11-div-3 rdbu-11-div-4 rdbu-11-div-5 rdbu-11-div-6 rdbu-11-div-7 rdbu-11-div-8 rdbu-11-div-9 rdbu-11-div-10 rdbu-11-div-11 rdgy-11-div-1 rdgy-11-div-2 rdgy-11-div-3 rdgy-11-div-4 rdgy-11-div-5 rdgy-11-div-6 rdgy-11-div-7 rdgy-11-div-8 rdgy-11-div-9 rdgy-11-div-10 rdgy-11-div-11 prgn-11-div-1 prgn-11-div-2 prgn-11-div-3 prgn-11-div-4 prgn-11-div-5 prgn-11-div-6 prgn-11-div-7 prgn-11-div-8 prgn-11-div-9 prgn-11-div-10 prgn-11-div-11 piyg-11-div-1 piyg-11-div-2 piyg-11-div-3 piyg-11-div-4 piyg-11-div-5 piyg-11-div-6 piyg-11-div-7 piyg-11-div-8 piyg-11-div-9 piyg-11-div-10 piyg-11-div-11)
+
+local chr_num=`cut -d " "  -f7 ${karyotype}|wc -l`  #获取染色体的条数
+local chrS=(`cut -d " "  -f7 ${karyotype}|tr "\n" " "`)  #获取染色体的字符，存储为数组
+local chr_order=$((chr_num - 1))  #染色体条数-1，因为下标是从0开始的
+local chrlen=`seq 0 $chr_order`  #生成0到染色体数量-1的连续数字向量
+
+##使用循环生成染色体的颜色文件
+for i in $chrlen;
+do
+	echo -e "
+<rule>
+condition = var(chr1) eq \"${chrS[i]}\" 
+color = ${chr_color[i]}
+</rule>" >>${colinemiddle}
+done
+
+cat ${colinehead} ${colinemiddle} ${colineend} >coline.conf.txt
+if [ $? -eq 0 ];then
+	echo "done!Output file is:
+	coline.conf.txt
+	"
+else
+	echo "ERROR in moudule confcoline!"
+	exit 1
+fi
+}
+
+#getR0R1 number total_number
+function getR0R1(){
+	case $1 in
+	-h|--help)
+		echo -e "
+		Usage:
+		getR0R1 number total_number
+		
+		Example:
+		getR0R1 2 18 
+		
+		Output:
+		number.lap.txt
+		
+		Notes:
+		number is integer.The number indicates the nth circle from the outside to the inside in the circle diagram. 
+		total_number is integer, Indicates the total number of laps.
+		"
+	
+	exit 1
+	;;
+	*)
+		if [ $# -ne 2 ];
+		then
+			echo "Usage:getR0R1 number total_number"
+			exit 1
+		fi
+	;;
+	esac
+	local number=$1
+	local total_number=$2
+	local calc_circos=`awk -v total_number=${total_number} 'BEGIN{if (total_number%2==0){print total_number} else {print total_number+1}}'` #计算圈数，如果是奇数，则自动取比奇数大1的偶数
+	local steplen=`awk -v calc_circos=${calc_circos} 'BEGIN{print 0.9/calc_circos}'` #每个圈的宽度
+	#blanklen=`awk -v calc_circos=${calc_circos} 'BEGIN{0.9/calc_circos*0.1}'` #每个圈的间隔
+	local numb=`awk -v number=${number} -v calc_circos=${calc_circos} 'BEGIN{ print calc_circos - number }'` #获取逆向的圈数，这样输出的是从外向内的圈数。意思是从外开始算第1圈，如果直接numb=number，则是从内开始计算圈数，但是如果总圈数是奇数的话，会出现最后一圈是空。
+	R1=`awk -v number=${numb} -v steplen=${steplen} 'BEGIN{ if (0.1 + steplen*number == 1) {print "0.99"} else { print 0.1 + steplen*number}}'`  #生成外半径 #控制外圈最大不超过1，最大只能是0.99
+	R0=`awk -v number=${numb} -v steplen=${steplen} 'BEGIN{print 0.1+ (number-1)*steplen + number*0.1*steplen}'`  #生成内半径 ，内半径最小是0.1
+	echo " 圈数是 $number 每圈的宽度是$steplen 内圈直径 $R0  外圈直径$R1"
+	echo "R0=$R0
+	R1=$R1
+	" >${number}.lap.txt
+}
+#histogram numfile number color prefix
+function histogram(){
+	case $1 in
+	-h|--help)
+		echo -e "
+		Usage:
+		histogram numfile number total_number color prefix
+		
+		Example:
+		histogram genes_num.txt 2 18 green genedensity
+		histogram genes_num.txt 2 21 152,28,230 genedensity
+		histogram genes_num.txt 2 10 #8def3c genedensity
+		
+		Output:
+		prefix.plot
+		
+		Notes:
+		number is integer.The number indicates the nth circle from the outside to the inside in the circle diagram. 
+
+		total_number is integer, Indicates the total number of laps.
+		color can be RGB color 160,160,160 or HEX color #8dd3c7 or normal color name.
+		"
+	
+	exit 1
+	;;
+	*)
+		if [ $# -ne 5 ];
+		then
+			echo "Usage:histogram numfile number total_number color prefix"
+			exit 1
+		fi
+	;;
+	esac
+
+	if [ -e $1 ];then
+		local numfile=$1
+	else
+		echo "ERROR：input file $1 is not exist!"
+	fi
+	local number=$2
+	local total_number=$3
+	local color=$4
+	local prefix=$5
+getR0R1 $number ${total_number}
+	echo -e "
+<plot>
+type = histogram
+file = ${numfile}
+fill_color = ${color} # 填充色
+thickness = 0p #关闭轮廓
+r1   = ${R1}r
+r0   = ${R0}r
+</plot>" > ${prefix}.plot
+	if [ $? -eq 0 ];then
+	echo "done!
+		Output file is:
+		${prefix}.plot
+	"
+	else
+		echo "ERROR: in module histogram!"
+		exit 1
+	fi
+}
+
+#heatmap numfile number sequential prefix
+function heatmap(){
+	case $1 in
+	-h|--help)
+		echo -e "
+		Usage:
+		heatmap numfile number total_number sequential prefix
+		
+		Example:
+		heatmap genes_num.txt 3 18 reds-9-seq genedensity
+		heatmap genes_num.txt 3 21 oranges-9-seq genedensity
+		heatmap genes_num.txt 3 10 BuGn-9-seq genedensity
+		
+		Output:
+		prefix.plot
+		
+		Notes:
+		number is integer.The number indicates the nth circle from the outside to the inside in the circle diagram. 
+		total_number is integer, Indicates the total number of laps.
+		color must be sequential. About more color demo in https://colorbrewer2.org/
+		"
+	
+	exit 1
+	;;
+	*)
+		if [ $# -ne 5 ];
+		then
+			echo "Usage:heatmap numfile number total_number color prefix"
+			exit 1
+		fi
+	;;
+	esac
+
+	if [ -e $1 ];then
+		local numfile=$1
+	else
+		echo "ERROR：input file $1 is not exist!"
+	fi
+
+	local number=$2
+	local total_number=$3
+	local color=$4
+	local prefix=$5
+
+getR0R1 $number ${total_number}
+	echo -e "
+<plot>
+type = heatmap
+file = ${numfile}
+fill_color = ${color} # 填充色
+thickness = 0p #关闭轮廓
+r1   = ${R1}r
+r0   = ${R0}r
+</plot>" > ${prefix}.plot
+	if [ $? -eq 0 ];then
+	echo "done!
+		Output file is:
+		${prefix}.plot
+	"
+	else
+		echo "ERROR: in module heatmap!"
+		exit 1
+	fi
+}
+#line numfile number color prefix
+function lineplot(){
+	case $1 in
+	-h|--help)
+	echo -e "
+		Usage:
+		lineplot numfile number total_numer color prefix
+		
+		Example:
+		lineplot genes_num.txt 2 18 green genedensity
+		lineplot genes_num.txt 2 20 152,28,230 genedensity
+		lineplot genes_num.txt 2 11 #8def3c genedensity
+		
+		Output:
+		prefix.plot
+		
+		Notes:
+		number is integer.The number indicates the nth circle from the outside to the inside in the circle diagram. 
+		total_number is integer, Indicates the total number of laps.
+		color can be RGB color 160,160,160 or HEX color #8dd3c7 or normal color name.
+		"
+	
+	exit 1
+	;;
+	*)
+		if [ $# -ne 5 ];
+		then
+			echo "Usage:lineplot numfile number total_number color prefix"
+			exit 1
+		fi
+	;;
+	esac
+
+	if [ -e $1 ];then
+		local numfile=$1
+	else
+		echo "ERROR：input file $1 is not exist!"
+	fi
+	local number=$2
+	local total_number=$3
+	local color=$4
+	local prefix=$5
+
+getR0R1 $number ${total_number}
+	echo -e "
+<plot>
+type = line
+file = ${numfile}
+fill_color = ${color} # 填充色
+thickness = 0p #关闭轮廓
+r1   = ${R1}r
+r0   = ${R0}r
+</plot>" > ${prefix}.plot
+	if [ $? -eq 0 ];then
+	echo "done!
+		Output file is:
+		${prefix}.plot
+	"
+	else
+		echo "ERROR: in module lineplot!"
+		exit 1
+	fi
+}
+
+#conf 
+function conf(){
+	case $1 in
+		-h|--help)
+			echo "
+			Usage:
+			-cc|confcoline
+			-hi|histogram
+			-hm|heatmap
+			-line|line
+			"
+			exit 1
+			;;
+		-cc|confcoline)
+			shift
+			confcoline $@
+			;;
+		-hm|heatmap)
+			shift
+			heatmap $@
+			;;
+		-hi|histogram)
+			shift
+			histogram $@
+			;;
+		-line|line)
+			shift
+			lineplot $@
+			;;
+			*)
+			echo "-h or --help for help!"
+			exit 1
+			;;
+	esac
+}
+
+#ticks chr_units
+function ticks(){
+	case $1 in 
+		-h|--help)
+			echo "
+			Usage:
+			ticks chr_units
+			
+			Default：指定最小刻度代表的碱基数量，默认是1M，即1000000
+			chr_units:1000000
+			
+			Output:
+			ticks.conf
+			"
+			exit 1
+			;;
+	esac
+	if [ $# -eq 0 ];then
+		#设置默认的最小的刻度值是1M
+		chr_units=1000000
+	else
+		chr_units=$1
+	fi
+	echo "
+#刻度ticks配置文件
+chromosomes_units = ${chr_units} #刻度盘最小刻度为1M,如果基因组比较大，可以增大该值
+show_ticks          = yes
+show_tick_labels    = yes
+
+<ticks>
+radius           = 1r #刻度线显示的位置
+color            = black #刻度线的颜色
+thickness        = 1p #设置线条粗细
+multiplier       = 1e-6 #输出的标签值：为实际长度与其相乘
+format           = %d # %d表示显示整数
+
+##刻度线的参数
+<tick>
+spacing        = 1u #刻度线之间的间隔（小锯齿的刻度1u,1*multiplier=1*10e-6）即1M
+size           = 5p #刻度线的长度
+</tick>
+
+##刻度线的标签的参数
+<tick>
+spacing        = 5u #大锯齿的间距 5*上面小锯齿的长度 5M
+size           = 10p #大锯齿的刻度的长度
+show_label     = yes #展示标签
+label_size     = 10p #文本大小
+label_offset   = 5p #刻度线的标签向外面移5p的距离，避免和刻度重叠
+format         = %d #显示证书
+</tick>
+</ticks>
+" >ticks.conf
+
+if [ $? -eq 0 ];then
+	echo "done!
+	Output file is:
+	ticks.conf"
+else
+	echo "ERROR in module ticks"
+	exit 1
+fi
+}
+
+#draw circos.conf
+function draw(){
+	case $1 in
+		-h|--help)
+			echo -e "
+			Usage:
+			draw conffile
+			draw
+			
+			Default:
+			conffile:circos.conf
+			
+			Example:
+			draw
+			draw circos.conf
+			"
+			exit 1
+			;;
+			*)
+				if [ $1 -eq 0 ];then
+					conffile="circos.conf"
+				else
+					conffile=$1
+				fi
+			;;
+	esac
+	
+	if ! [ -e $conffile ];then
+		echo "ERROR: ${conffile} is not exist!"
+		exit 1
+	fi
+	
+	conda activate circos 
+	circos --help
+	if ! [ $? -eq 0 ];then
+		echo -e "
+		Please make sure your circos sofware can be run !
+		ERROR: The circos software is not running properly!
+		"
+		exit 1
+	fi
+	circos -c ${conffile}
+}
+
+function pipline(){
+	case $1 in
+		-h|--help)
+			echo -e "
+			Usage: pipline config.ini
+			Notes: please modify the info in config.ini.
+			"
+			exit 1
+		;;
+	esac
+	if [ -e $1 ];then
+		source $1
+	else
+		echo "ERROR:input file $1 in not exist!"
+		exit 1
+	fi
+	bash pipline.sh $1 
+	if [ $? -eq 0 ];then
+		echo "All done!"
+	else
+		echo "ERROR in pipline.sh!"
+		exit 1
+	fi
+}
+
+	##Usage:
+	case $1 in 
+		-h|--help)
+		echo -e "
+		DrawCircos :A tools for draw circos prepare data
+		Version:0.03
+		Usage:
+		DrawCircos 
+		-h|--help 
+		
+		[ prepare Data ]		Usage				Purpose
+		-gw|getwindow		getwindow genome.fa windowsize prefix	for get window file 
+		-gd|genedensity		genedensity gff3file windowfile		for get gene density
+		-gGC|getGC		getGC genome.fa windowfile		for get GC content in genome 
+		-gv|getvcf		getvcf vcffile windowfile prefixname	for vcffile 
+		-gc|getcoline		getcoline colinefile genes.ID.bed		for coline file
+		-gL|getLAI		getLAI LAIfile				for LAI value
+		-gCop|getCopia		getCopia LTRfile windowfile		for repeat sequence of LTR type of Copia
+		-gGy|getGypsy		getGypsy LTRfile windowfile		for repeat sequence of LTR type of Gypsy
+		-gfL|getfullLTR		getfullLTR LAIfile			for repeat sequence of complete LTR
+		-gaL|getallLTR		getallLTR LAIfile			for repeat sequence of all LTR
+		-gIb|getIDbed		getIDbed gff3file type keyid		from gff3 file get bed file
+		-b2n|bed2num		bed2num bedfile windowfile prefix	from bed file get num file
+		-fpkm|fpkm		fpkm bamfile windowfile prefix		from bam file calculate fpkm in genome
+		
+		[ prepare require file ]		Usage			Purpose
+		-k|karyotype		karyotype genomelengthfile		get karyotype.txt
+		-c|conf			conf -cc/-hi/-hm/-line/-h			for coline/histogram/heatmap/line 4 type prepare conf file
+		-t|ticks		ticks chr_units 				prepare ticks.conf
+		
+		[ draw circos ]
+		-d|draw		draw conffile
+		
+		[ pipline ]
+		-p|pipline		pipline config.ini			a pipline for draw circos, all the input are set in config.ini
+		
+		[ Require softwares ]
+		samtools, bedtools, circos
+		
+		[ Author info ]
+		Author: Mol Chai 
+		Email: chaimol@163.com
+		Githubs: https://github.com/chaimol/bio_code/tree/master/pipline/DrawCircos
+		
+		[ Notes ]
+		1.please be careful of your gff3 type keyid ,make sure the output gene ID is same with your genome sequence. check it is 'Sp01G000010.1' or 'Sp01G000010' type.
+		2.all the output file ( _num.txt ) each columns are seprate by 1 space! these files will be used for draw the circos.
+		"
+			exit 1
+			;;
+		-gw|getwindow)
+			shift
+			getwindow $@
+			;;
+		-gd|genedensity)
+			shift
+			genedensity $@
+			;;
+		-gGC|getGC)
+			shift
+			getGC $@
+			;;
+		-gv|getvcf)
+			shift
+			getvcf $@
+			;;
+		-gc|getcoline)
+			shift
+			getcoline $@
+			;;
+		-gL|getLAI)
+			shift
+			getLAI $@
+			;;
+		-gIb|getIDbed)
+			shift
+			getIDbed $@
+		;;
+		-gCop|getCopia)
+			shift
+			getCopia $@
+			;;
+		-gGy|getGypsy)
+			shift
+			getGypsy $@
+			;;
+		-gfL|getfullLTR)
+			shift
+			getfullLTR $@
+			;;
+		-gaL|getallLTR)
+			shift
+			getallLTR $@
+			;;
+		-b2n|bed2num)
+			shift
+			bed2num $@
+			;;
+		-fpkm|fpkm)
+			shift
+			fpkm $@
+			;;
+		-k|karyotype)
+			shift
+			karyotype $@
+			;;
+		-c|conf)
+			shift
+			conf $@
+			;;
+		-t|ticks)
+			shift
+			ticks $@
+			;;
+		-d|draw)
+			shift
+			draw $@
+			;;
+		-p|pipline)
+			shift
+			pipline $@
+			;;
+		*)
+			echo "Use:-h or --help for help!"
+			;;
+	esac 
