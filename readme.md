@@ -1,4 +1,4 @@
-DrawCircos: A pipline for prepare draw circos data
+# DrawCircos: A pipline for prepare draw circos data
 # 1. Install 
 require software:
 - circos
@@ -12,41 +12,37 @@ conda create -c bioconda -n circos circos
 
 # 2. Usage
 ### prepare Data
-|  |  |  |	 |
----|----|----|----|----|
-abbr parameter|parameter 		|Usage	|	Purpose|
--gw|getwindow	|	getwindow genome.fa windowize abbr	|	for get window file 
--gd|genedensity	|	genedensity gff3file windowfile		|for get gene density
--gGC|getGC	|	getGC genome.fa windowfile		|for get GC content in genome 
--gv|getvcf	|	getvcf vcffile windowfile abbrname	|	for vcffile 
--gc|getcoline	|	getcoline colinefile genes.bed	|	for coline file
--gL|getLAI	|	getLAI LAIfile	|	for LAI value
--gCop|getCopia	|	getCopia LTRfile windowfile	|	for repeat sequence of LTR type of Copia
--gGy|getGypsy  |	getGypsy LTRfile windowfile	|	for repeat sequence of LTR type of Gypsy
--gfL|getfullLTR	|	getfullLTR LAIfile	|	for repeat sequence of complete LTR
--gaL|getallLTR	|	getallLTR LAIfile	|	for repeat sequence of all LTR
--g2b|gff2bed	|	gff2bed gff3file type keyid	|	from gff3 file get bed file
--b2n|bed2num	|	bed2num bedfile windowfile abbr	|	from bed file get num file
+
+| abbr parameter |Long parameter |Usage	|	Purpose |
+|----|----|----|----|
+|-gw|getwindow	|	getwindow genome.fa windowize abbr	|	for get window file |
+|-gd|genedensity	|	genedensity gff3file windowfile		|for get gene density|
+|-gGC|getGC	|	getGC genome.fa windowfile		|for get GC content in genome |
+|-gv|getvcf	|	getvcf vcffile windowfile abbrname	|	for vcffile |
+|-gc|getcoline	|	getcoline colinefile genes.bed	|	for coline file|
+|-gL|getLAI	|	getLAI LAIfile	|	for LAI value|
+|-gCop|getCopia	|	getCopia LTRfile windowfile	|	for repeat sequence of LTR type of Copia|
+|-gGy|getGypsy  |	getGypsy LTRfile windowfile	|	for repeat sequence of LTR type of Gypsy|
+|-gfL|getfullLTR	|	getfullLTR LAIfile	|	for repeat sequence of complete LTR|
+|-gaL|getallLTR	|	getallLTR LAIfile	|	for repeat sequence of all LTR|
+|-g2b|gff2bed	|	gff2bed gff3file type keyid	|	from gff3 file get bed file|
+|-b2n|bed2num	|	bed2num bedfile windowfile abbr	|	from bed file get num file|
 
 Prepare Data Output file end with "_num.txt" will be as input in draw circos!
 
 ### prepare require file
-|  |  |  |  |
+
+|abbr parameter |Long parameter|		Usage	|	Purpose|
 |----|----|----|----|
-|abbr parameter |parameter|		Usage	|	Purpose|
--k|karyotype		|karyotype genomelengthfile		|for get karyotype.txt
--c|conf			|conf -cc/-hi/-hm/-line/-h	|	for coline/histogram/heatmap/line 4 type prepare conf file
--t|ticks		|ticks	|	prepare ticks.conf
+|-k|karyotype		|karyotype genomelengthfile		|for get karyotype.txt|
+|-c|conf			|conf -cc/-hi/-hm/-line/-h	|	for coline/histogram/heatmap/line 4 type prepare conf file|
+|-t|ticks		|ticks	|	prepare ticks.conf|
 
 ### draw circos
-|	|	|	|
-|--|--|--|
--d|draw	|	draw conffile
+`-d|draw	draw conffile `
 
 ### pipline
-|  |  |	|	|
-|--|--|--|--|
--p|pipline|		pipline config.ini|		a pipline for draw circos, all the input are set in config.ini
+`-p|pipline`		pipline config.ini 		a pipline for draw circos, all the input are set in config.ini
 
 	gene density()
 	SNP density()
@@ -69,8 +65,7 @@ Prepare Data Output file end with "_num.txt" will be as input in draw circos!
 2. all the output file ( _num.txt ) are the input file of Circos.
 
 # 4. Author info
-Author: Mol Chai
-Email: chaimol@163.com
+Author Email: chaimol@163.com
 
 # 5. Update information
 #### 2021.07.01 release the Version to 0.01
