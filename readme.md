@@ -1,6 +1,14 @@
 DrawCircos: A pipline for prepare draw circos data
 # 1. Install 
-require software: circos,bedtools,samtools
+require software:
+- circos
+- bedtools
+- samtools
+
+```
+conda create -c bioconda -n circos circos
+```
+[circos的安装的疑难解答](https://www.jianshu.com/p/7c594d01fede)
 
 # 2. Usage
 ### prepare Data
@@ -40,21 +48,21 @@ Prepare Data Output file end with "_num.txt" will be as input in draw circos!
 |--|--|--|--|
 -p|pipline|		pipline config.ini|		a pipline for draw circos, all the input are set in config.ini
 
-gene density()
-SNP density()
-INDEL density()
-genome colines()
-karyotype.Spo.txt (染色体长度配置文件) *
-circos.conf (主要的conf文件，画图时，通过此文件来调用其他配置文件)*
-ticks.conf (刻度控制文件)*
-coline_num.txt （共线性文件）
-GC_num.txt GC（含量文件）
-full_LTR_num.txt （完整LTR的百分比）
-Gypsy_num.txt (Gypsy的百分比)
-LTR_num.txt (所有LTR的百分比)
-Copia_num.txt(Copia的百分比)
-genes_num.txt (基因密度)
-LAI_num.txt(LAI的分布)
+	gene density()
+	SNP density()
+	INDEL density()
+	genome colines()
+	karyotype.Spo.txt (染色体长度配置文件) *
+	circos.conf (主要的conf文件，画图时，通过此文件来调用其他配置文件)*
+	ticks.conf (刻度控制文件)*
+	coline_num.txt （共线性文件）
+	GC_num.txt GC（含量文件）
+	full_LTR_num.txt （完整LTR的百分比）
+	Gypsy_num.txt (Gypsy的百分比)
+	LTR_num.txt (所有LTR的百分比)
+	Copia_num.txt(Copia的百分比)
+	genes_num.txt (基因密度)
+	LAI_num.txt(LAI的分布)
 
 # 3. Notes
 1. please be careful of your gff3 type keyid ,make sure the output gene ID is same with your genome sequence. check it is  or  type.
@@ -63,7 +71,6 @@ LAI_num.txt(LAI的分布)
 # 4. Author info
 Author: Mol Chai
 Email: chaimol@163.com
-Githubs: https://github.com/chaimol/bio_code/tree/master/pipline/DrawCircos
 
 # 5. Update information
 #### 2021.07.01 release the Version to 0.01
