@@ -20,8 +20,8 @@
 # samtools="/share/home/chaimao1/soft/samtools/samtools-1.10/bin/samtools"
 # bedtools="/share/home/chaimao1/soft/bedtools/bedtools"
 
-LTRfind_github="https://github.com/chaimol/bio_code/tree/master/pipline/LTRfind"
-KK4D_github="https://github.com/chaimol/bio_code/tree/master/pipline/KK4D"
+LTRfind_github="https://github.com/chaimol/LTRfind"
+KK4D_github="https://github.com/chaimol/KK4D"
 
 
 
@@ -1467,7 +1467,7 @@ function pipline(){
 		[ Author info ]
 		Author: Mol Chai 
 		Email: chaimol@163.com
-		Githubs: https://github.com/chaimol/bio_code/tree/master/pipline/DrawCircos
+		Githubs: https://github.com/chaimol/DrawCircos
 		
 		[ Notes ]
 		1.please be careful of your gff3 type keyid ,make sure the output gene ID is same with your genome sequence. check it is 'Sp01G000010.1' or 'Sp01G000010' type.
