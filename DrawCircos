@@ -2,7 +2,6 @@
 
 #conda activate circos
 
-
 ##Input file list
 # gff3="Spohua.genome.gff3" #gff3文件
 # genome="Spohua.genome.fa" #基因组文件
@@ -17,13 +16,31 @@
 
 
 # ##Software PATH
-# samtools="/share/home/chaimao1/soft/samtools/samtools-1.10/bin/samtools"
-# bedtools="/share/home/chaimao1/soft/bedtools/bedtools"
+samtools="/share/home/chaimao1/soft/samtools/samtools-1.10/bin/samtools"
+bedtools="/share/home/chaimao1/soft/bedtools/bedtools"
 
 LTRfind_github="https://github.com/chaimol/LTRfind"
 KK4D_github="https://github.com/chaimol/KK4D"
 
+# 通用错误处理函数
+function error_exit() {
+    echo "ERROR: $1" >&2
+    exit 1
+}
 
+# 检查文件是否存在
+function check_file_exists() {
+    if [ ! -e "$1" ]; then
+        error_exit "Input file $1 does not exist!"
+    fi
+}
+
+# 检查命令是否存在
+function check_command_exists() {
+    if ! command -v "$1" &> /dev/null; then
+        error_exit "The $1 command is not installed or not in PATH!"
+    fi
+}
 
 #karyotype.Spo.txt (染色体长度配置文件) *
 #circos.conf (主要的conf文件，画图时，通过此文件来调用其他配置文件)*
@@ -56,13 +73,10 @@ function getwindow(){
 			exit 1
 			;;
 			*)
-			if ! [ -e $1 ];then
-				echo "The input genome file is not exist!"
-				exit 1
-			fi
+			check_file_exists "$1"
 			;;
 	esac
-	#确保是三个参数
+	#确保最少是3个参数
 	if [ $# -lt 3 ];then
 		echo "
 		Please check the number of parameters you entered！
@@ -72,30 +86,30 @@ function getwindow(){
 	fi
 	#确定最小窗口大小必须大于1
 	if [ $2 -lt 1 ];then
-		echo "Please make sure the windowsize is more than 1!"
-		exit 1
+		error_exit "Please make sure the windowsize is more than 1!"
 	fi
 	genome=$1
 	local window=$2
-	local prefix=$3
 	#准备genome.txt
-	samtools faidx ${genome}
-	
+	$samtools faidx ${genome} || error_exit "Failed to index genome file with samtools"
+	local prefix=$3
+
 	##定义分析一个字符串的染色体的窗口文件
 	function get1chrstrwindow(){
 		chrstr=$1
 		###输出：prefix.window 滑动窗文件
 		cat ${genome}.fai |cut -f 1-2| fgrep ${chrstr}|sort -V >${prefix}.${chrstr}.genome.txt
 		#制作滑动窗
-		bedtools makewindows -g ${prefix}.${chrstr}.genome.txt -w ${window} >${prefix}.${chrstr}.window.CHR #默认window为1M
+		${bedtools} makewindows -g ${prefix}.${chrstr}.genome.txt -w ${window} >${prefix}.${chrstr}.window.CHR #默认window为1M
 	}
 	
 	if [ $# -eq 3 ];then
 		#用户不提供染色体字符，就对整个基因组进行分析。
 		cat ${genome}.fai |cut -f 1-2|sort -V >${prefix}.genome.txt
-		bedtools makewindows -g ${prefix}.genome.txt -w ${window} >${prefix}.window #默认window为1M
+		${bedtools} makewindows -g ${prefix}.genome.txt -w ${window} >${prefix}.window #默认window为1M
 	else
 		# 循环从第4个参数开始，将每个参数添加到列表中
+		params=()
 		for (( i=4; i<=$#; i++ ))
 		do
 			params+=("${!i}")
@@ -118,11 +132,7 @@ function getwindow(){
 		${prefix}.window #基因组的滑动窗的bed文件，共3列
 		"
 	else
-		echo -e "
-		ERROR:in run :
-		$0
-		ERROR in module getwindow
-		"
+		error_exit "ERROR in module getwindow"
 	fi
 }
 
@@ -146,18 +156,13 @@ function getGC(){
 			fi
 		;;
 	esac
-	if ! [ -e $1 ];then
-		echo "ERROR:Input file $1 is not exist!"
-		exit 1
-	fi
-	if ! [ -e $2 ];then
-		echo "ERROR:Input file $2 is not exist!"
-		exit 1
-	fi
+	check_file_exists "$1"
+	check_file_exists "$2"
+	
 	genomefile=$1
 	windowfile=$2
 	
-	bedtools nuc -fi ${genomefile} -bed ${windowfile} |cut -f 1-3,5|sed '1d' >GC_num.txt
+	${bedtools} nuc -fi ${genomefile} -bed ${windowfile} |cut -f 1-3,5|sed '1d' >GC_num.txt
 	if [ $? -eq 0 ];then
 		echo -e "
 		done!
@@ -165,8 +170,7 @@ function getGC(){
 		GC_num.txt #基因组GC含量绘图文件
 		"
 	else
-		echo "ERROR in module getGC!"
-		exit 1
+		error_exit "ERROR in module getGC!"
 	fi
 }
 
@@ -203,24 +207,18 @@ function genedensity(){
 		fi
 		;;
 	esac
-	if ! [ -e $1 ];then
-			echo "Input gff3 file $1 is not exist!"
-			exit 1
-		fi
-	echo "pass the gff3file check!"
-	if ! [ -e $2 ];then
-		echo "Input windowfile $2 is not exist!"
-		exit 1
-	fi
-	echo "pass the windowfile check !"
+	check_file_exists "$1"
+	check_file_exists "$2"
+	
 	gff3=$1
 	windowfile=$2
 	if [ $# -lt 3 ];then
 		###基因密度bed,输出genes_num.txt
 		grep '[[:blank:]]gene[[:blank:]]' ${gff3} | awk -F "\t" '{print $1"\t"$4"\t"$5}'|sort -k1 >genes.bed
-		bedtools coverage -a ${windowfile} -b genes.bed |cut -f 1-4 >genes_num.txt
+		${bedtools} coverage -a ${windowfile} -b genes.bed |cut -f 1-4 >genes_num.txt
 	else
 		# 循环从第3个参数开始，将每个参数添加到列表中
+		params=()
 		for (( i=3; i<=$#; i++ ))
 		do
 			params+=("${!i}")
@@ -234,7 +232,7 @@ function genedensity(){
 			grep '[[:blank:]]gene[[:blank:]]' ${gff3} | awk -F "\t" '{print $1"\t"$4"\t"$5}'|grep ${chr} |sort -k1 >genes.${chr}.gene.bed
 		done
 		cat genes.*.gene.bed > genes.bed
-		bedtools coverage -a ${windowfile} -b genes.bed |cut -f 1-4 >genes_num.txt
+		${bedtools} coverage -a ${windowfile} -b genes.bed |cut -f 1-4 >genes_num.txt
 	fi
 	if [ $? -eq 0 ];then
 		echo -e "
@@ -244,8 +242,7 @@ function genedensity(){
 		genes_num.txt #基因密度文件
 		"
 	else
-		echo "ERROR:in module genedensity!"
-		exit 1
+		error_exit "ERROR in module genedensity!"
 	fi
 }
 
@@ -278,23 +275,15 @@ function getvcf(){
 			fi
 		;;
 	esac
-	if ! [ -e $1 ];then
-	echo "Error:input the vcf file $1 is not exist!"
-	exit 1
-	fi
-	echo "pass the check of vcffile!"
-	if ! [ -e $2 ];then
-		echo "Error:input the windowfile $2 is not exist!"
-		exit 1
-	fi
-	echo "pass the check of windowfile!"
-
+	check_file_exists "$1"
+	check_file_exists "$2"
+	
 	#输入1：vcf的文件，输入2：输入文件名前缀 输出：前缀_num.txt
 	local vcffile=$1
 	local windowfile=$2
 	local type=$3
-	cat ${vcffile}|awk '{print $1"\t"$2"\t"$2}'|sed '1d' >${type}.vcf.bed
-	bedtools coverage -a ${windowfile} -b ${type}.vcf.bed |cut -f 1-4 >${type}_num.txt
+	cat ${vcffile}|awk '{print $1"\t"$2-1"\t"$2}'|sed '1d' >${type}.vcf.bed
+	${bedtools} coverage -a ${windowfile} -b ${type}.vcf.bed |cut -f 1-4 >${type}_num.txt
 	if [ $? -eq 0 ];then
 		echo -e "
 		done!
@@ -303,10 +292,7 @@ function getvcf(){
 		${type}_num.txt
 		"
 	else
-		echo "
-		Error: in module getvcf!
-		"
-		exit 1
+		error_exit "Error in module getvcf!"
 	fi
 }
 
@@ -336,10 +322,8 @@ function getLAI(){
 		fi
 		;;
 	esac
-	if ! [ -e $1 ];then
-		echo "ERROR: Input file LAI $1 is not exist!"
-		exit 1
-	fi
+	check_file_exists "$1"
+	
 	local LAI=$1
 	#输入LAI文件，输出LAI_num.txt
 	cat ${LAI}|cut -f 1,2,3,7 |sed '1,2d' >LAI_num.txt
@@ -350,8 +334,7 @@ function getLAI(){
 		LAI_num.txt
 		"
 	else
-		echo "ERROR:in module getLAI!"
-		exit 1
+		error_exit "ERROR in module getLAI!"
 	fi
 }
 
@@ -382,6 +365,7 @@ function getIDbed(){
 		getIDbed TM-1.genome.gff3 mRNA 1 A D
 		
 		Notes:
+		参数1是gff3文件，参数2和3，是gff3中对应共线性分析的基因id，参数2是对应gff3第3列的字段一般是gene或mRNA,参数3是对应gff3第9列的第几个字段。
 		type should be a string in gff3 file cloumn 3th , keyid should be a Integer number,keyid corresponds to the number field in the 9th column of the gff file.
 		please make sure your type and keyid is setting right,so that the output geneid is right styles.
 		如果是多倍体，则直接在后面依次罗列亚组的字符即可
@@ -402,10 +386,8 @@ function getIDbed(){
 		;;
 	esac
 	#判断是否输入了gff3文件
-	if ! [ -e $1 ] ;then
-		echo "Error:Input the gff3 file not exist!"
-		exit 1
-	fi
+	check_file_exists "$1"
+	
 	if [ $# -eq 0 ];then
 		echo "please input the gff3 file!"
 		exit 1
@@ -415,7 +397,7 @@ function getIDbed(){
 	local type=$2
 	local keyid=$3
 
-##设置默认的值：tyep:gene,keyid:1
+    ##设置默认的值：tyep:gene,keyid:1
 	if [ $# -eq 1 ];then
 		local keyid=1
 		local type="gene"
@@ -427,6 +409,7 @@ function getIDbed(){
 		cat ${gff3}|grep "[[:blank:]]${type}[[:blank:]]"|awk -F "\t" -v keyid="${keyid}" 'split($9,a,";") split(a[keyid],b,"=") {print $1"\t"$4"\t"$5"\t"b[2]}' >genes.ID.bed
 	else
 		# 循环从第4个参数开始，将每个参数添加到列表中
+		params=()
 		for (( i=4; i<=$#; i++ ))
 		do
 			params+=("${!i}")
@@ -443,11 +426,7 @@ function getIDbed(){
 	if [ $? -eq 0 ];then
 		echo "success!Output file is genes.ID.bed "
 	else
-		echo -e "
-		Error:
-		in  module of getIDbed  
-		"
-		exit 1
+		error_exit "Error in module of getIDbed"
 	fi
 }
 
@@ -474,7 +453,7 @@ function getcoline(){
 			Notes:
 			If your collinearity file is neither from jcvi nor from MSCanX, you only need to place the gene pairs in the two columns of the tab division as the input file, and no need input the softwarename.
 			You also can be get coline file , by KK4D coline .More info in ${KK4D_github}.
-			genes.ID.bed can be get by getIDbed.
+			genes.ID.bed can be get by use 'DrawCircos getIDbed'.
 			
 			Output:
 			coline_num.txt 基因组的共线性绘图文件
@@ -483,10 +462,8 @@ function getcoline(){
 			;;
 		*)
 		#判断是否输入了coline文件
-		if ! [ -e $1 ];then
-			echo "Error:Input the coline file $1 is not exist!"
-			exit 1
-		fi
+		check_file_exists "$1"
+		
 		if [ $# -eq 0 ];then
 			echo "please input the coline file!"
 			exit 1
@@ -554,9 +531,7 @@ function getcoline(){
 		Output file is :
 		coline_num.txt"
 	else
-		echo -e "
-		Error: in mordule of getcoline!"
-		exit 1
+		error_exit "Error in mordule of getcoline!"
 	fi
 }
 
@@ -587,27 +562,21 @@ function getCopia(){
 			fi
 			;;
 	esac
-	if ! [ -e $1 ];then
-		echo "ERROR: Input LTRfile $1 is not exist!"
-		exit 1
-	fi
-	if ! [ -e $2 ];then
-		echo "ERROR: Input windowfile $2 is not exist!"
-		exit 1
-	fi
+	check_file_exists "$1"
+	check_file_exists "$2"
+	
 	LTRfile=$1
 	windowfile=$2
 	# ###Copia类型的转座子
 	cat ${LTRfile} |grep Copia |cut -f1|tr : "\t"|sed 's/\.\./\t/g' >Copia.bed
-	bedtools coverage -a ${windowfile} -b Copia.bed |cut -f 1-4 >Copia_num.txt
+	${bedtools} coverage -a ${windowfile} -b Copia.bed |cut -f 1-4 >Copia_num.txt
 	if [ $? -eq 0 ];then
 		echo "done!
 		Output file is :
 		Copia.bed 
 		Copia_num.txt"
 	else
-		echo "ERROR:in module getCopia!"
-		exit 1
+		error_exit "ERROR in module getCopia!"
 	fi
 }
 
@@ -639,27 +608,21 @@ function getGypsy(){
 				fi
 			;;
 	esac
-	if ! [ -e $1 ];then
-		echo "Input LTRfile $1 is not exist!"
-		exit 1
-	fi
-	if ! [ -e $2 ];then
-		echo "ERROR: Input windowfile $2 is not exist!"
-		exit 1
-	fi
+	check_file_exists "$1"
+	check_file_exists "$2"
+	
 	LTRfile=$1
 	windowfile=$2
 	# ###Gypsy类型的转座子
 	cat ${LTRfile}|grep Gypsy |cut -f1|tr : "\t"|sed 's/\.\./\t/g' >Gypsy.bed
-	bedtools coverage -a ${windowfile} -b Gypsy.bed |cut -f 1-4 >Gypsy_num.txt
+	${bedtools} coverage -a ${windowfile} -b Gypsy.bed |cut -f 1-4 >Gypsy_num.txt
 	if [ $? -eq 0 ];then
 		echo "done!
 		Ouput file is:
 		Gypsy.bed
 		Gypsy_num.txt"
 	else
-		echo "ERROR:in module getGypsy!"
-		exit 1
+		error_exit "ERROR in module getGypsy!"
 	fi
 }
 
@@ -691,18 +654,15 @@ function getfullLTR(){
 			fi
 			;;
 	esac
-	if ! [ -e $1 ];then
-		echo "Input LAIfile $1 is not exist!"
-		exit 1
-	fi
+	check_file_exists "$1"
+	
 	cat $1|awk '{print $1"\t"$2"\t"$3"\t"$4*100}'|sed '1,2d' >full_LTR_num.txt
 	if [ $? -eq 0 ];then
 		echo "done!
 		Ouput file is:
 		full_LTR_num.txt"
 	else
-		echo "ERROR:in module getfullLTR!"
-		exit 1
+		error_exit "ERROR in module getfullLTR!"
 	fi
 }
 
@@ -734,18 +694,15 @@ function getallLTR(){
 			fi
 			;;
 	esac
-	if ! [ -e $1 ];then
-		echo "Input LAIfile $1 is not exist!"
-		exit 1
-	fi
+	check_file_exists "$1"
+	
 	cat $1|awk '{print $1"\t"$2"\t"$3"\t"$5*100}'|sed '1,2d' >LTR_num.txt
 	if [ $? -eq 0 ];then
 		echo "done!
 		Ouput file is:
 		LTR_num.txt"
 	else
-		echo "ERROR:in module getallLTR!"
-		exit 1
+		error_exit "ERROR in module getallLTR!"
 	fi
 }
 
@@ -787,21 +744,16 @@ function bed2num(){
 				fi
 			;;
 	esac
-	if ! [ -e $1 ];then
-		echo "Input bedfile $1 is not exist!"
-		exit 1
-	fi
+	check_file_exists "$1"
+	
 	columnnum=`cat $1|awk -F " " 'NF<3 {print $0}'|wc -l`
 	if [ $columnnum -ne 0 ];then
-		echo "ERROR in bed file $1,
+		error_exit "ERROR in bed file $1,
 		Please make sure your bed file at least have 3 columns.and each column dividing symbol is 1 space"
-		exit 1
 	fi
-	if ! [ -e $2 ];then
-		echo "ERROR: Input windowfile $2 is not exist!"
-		exit 1
-	fi
-	#处理bed文件的第2列和第3列，如果第2列>第3列，则需要调整顺序，否则bedtools会报错
+	check_file_exists "$2"
+	
+	#处理bed文件的第2列和第3列，如果第2列>第3列，则需要调整顺序，否则${bedtools}会报错
 	trap 'rm -f "$bed_temp"' EXIT  #退出时，删除临时文件(trap是根据后面的系统信号，执行前面的命令)
 	bed_temp=$(mktemp -p ${PWD}) || exit 1  #创建临时文件
 	awk '{if ($2>$3) {print $1"\t"$3"\t"$2} else {print $1"\t"$2"\t"$3}}' $1 > ${bed_temp}
@@ -816,14 +768,14 @@ function bed2num(){
 	case ${outtype} in
 		-n|num)
 			#获取bed文件对应的window分割后的文件，是circos的输入文件
-			bedtools coverage -a ${windowfile} -b ${bedfile} |cut -f 1-4 >${prefix}_num.txt
+			${bedtools} coverage -a ${windowfile} -b ${bedfile} |cut -f 1-4 >${prefix}_num.txt
 			;;
 		-r|rate)
 			#获取bed文件对应的window分割后的文件，是circos的输入文件
-			bedtools coverage -a ${windowfile} -b ${bedfile} |cut -f 1-3,7 >${prefix}_num.txt
+			${bedtools} coverage -a ${windowfile} -b ${bedfile} |cut -f 1-3,7 >${prefix}_num.txt
 		;;
 		*)
-			echo "ERROR in module bed2num!"
+			error_exit "ERROR in module bed2num!"
 	esac
 	if [ $? -eq 0 ];
 	then
@@ -831,10 +783,10 @@ function bed2num(){
 		Ouput file is:
 		${prefix}_num.txt"
 	else
-		echo "ERROR:in module bed2num!"
-		exit 1
+		error_exit "ERROR in module bed2num!"
 	fi
 }
+
 #fpkm bamfile windowfile prefix
 function fpkm(){
 	case $1 in 
@@ -862,17 +814,14 @@ function fpkm(){
 	bamfile=$1
 	windowfile=$2
 	prefix=$3
-	if [ -e ${bamfile} ] && [ -e ${windowfile} ];then
-		echo "pass the check of input!"
-	else
-		echo "Inputfile ${bamfile} or ${windowfile} is not exist!"
-		exit 1
-	fi
+	check_file_exists "${bamfile}"
+	check_file_exists "${windowfile}"
+	
 	windowsize=`cat ${windowfile}|grep -v ^#|head -1|awk '{print ($3-$2)/1000}'`
 	trap 'rm -rf "$tempbed"' EXIT
 	tempbed=$(mktemp -p ${PWD} tempbed.XXXXX) ||exit 1
-	bedtools bamtobed -i ${bamfile} >${tempbed}
-	bedtools coverage -a ${windowfile} -b ${tempbed} >${prefix}.reads
+	${bedtools} bamtobed -i ${bamfile} >${tempbed}
+	${bedtools} coverage -a ${windowfile} -b ${tempbed} >${prefix}.reads
 	local reads_Nsum=`cat ${prefix}.reads | awk '{sum=sum+$5}END{print sum}'` 
 	cat ${prefix}.reads | awk -v windowsize=${windowsize} -v sum=${reads_Nsum} '{print $1"\t"$2"\t"$3"\t"$4/(sum*windowsize/1000000)}' > ${prefix}.fpkm
 	
@@ -881,8 +830,7 @@ function fpkm(){
 		Output file is:
 		${prefix}.fpkm"
 	else
-		echo "ERROR in module fpkm!"
-		exit 1
+		error_exit "ERROR in module fpkm!"
 	fi
 }
 
@@ -913,10 +861,8 @@ function karyotype(){
 			fi
 		;;
 	esac
-	if ! [ -e $1 ];then
-		echo "ERROR:input genomelength file $1 is not exist!"
-		exit 1
-	fi
+	check_file_exists "$1"
+	
 	genomelengthfile=$1
 	##生成配置染色体文件
 	awk '{print "chr - "$1" "$1" 0 "$2" "$1}' ${genomelengthfile} >karyotype.txt
@@ -925,8 +871,7 @@ function karyotype(){
 		Ouput file is:
 		karyotype.txt"
 	else
-		echo "ERROR in module karyotype!"
-		exit 1
+		error_exit "ERROR in module karyotype!"
 	fi
 }
 
@@ -936,12 +881,14 @@ function confcoline(){
 		-h|--help)
 			echo -e "
 			Usage:
-			confcoline karyotype.txt total_number
 			confcoline total_number
+			confcoline coline_num.txt total_number
+			confcoline karyotype.txt coline_num.txt total_number
 			
 			Default:
 			karyotype.txt:karyotype.txt
-			total_number:Integer, 总圈数,也是从外道内的最内圈的圈数
+			coline_num.txt
+			total_number:Integer, 总圈数,即从最内圈到最外圈的圈数，不包含最外圈的染色体所在的圈。
 			
 			Output:
 			coline.conf.txt
@@ -949,21 +896,24 @@ function confcoline(){
 			exit 1
 			;;
 			*)
+				coline_num_file="coline_num.txt" #默认的共线性_num文件
+				karyotype="karyotype.txt" #默认的染色体文件
 			if [ $# -eq 1 ];then
-				karyotype="karyotype.txt"
-				number=$1
 				total_number=$1
-			else
-				karyotype=$1
-				number=$2
+			elif [ $# -eq 2 ];then
+				coline_num_file=$1
 				total_number=$2
+			elif [ $# -eq 3 ];then
+				karyotype=$1
+				coline_num_file=$2
+				total_number=$3
+			else
+				error_exit "Error in module confcoline!"
 			fi
 			;;
 	esac
-	if ! [ -e ${karyotype} ];then
-		echo "ERROR: file ${karyotype} is not exist,please use -k/karyotype build it at first!"
-		exit 1
-	fi
+	check_file_exists "${karyotype}"
+	
 	function cleanup(){
 		rm -rf "$colinehead";
 		rm -rf "$colinemiddle";
@@ -974,7 +924,7 @@ function confcoline(){
 	colinemiddle=$(mktemp -p ${PWD}) || exit 1
 	colineend=$(mktemp -p ${PWD}) || exit 1
 	
-	getR0R1 ${number} ${total_number}
+	getR0R1 1 ${total_number}
 	echo -e "
 ##共线性图
 <links>
@@ -986,40 +936,39 @@ thickness = 1p #定义线条的粗细
 ribbon = yes
 ######rules指定线条的颜色，
 <rules>
-" >${colinehead}
+	" >${colinehead}
 
-echo -e "
+	echo -e "
 </rules>
 </link>
 </links>
-">${colineend}
-##set the color for chromosomes color
-chr_color=(rdylgn-11-div-1 rdylgn-11-div-2 rdylgn-11-div-3 rdylgn-11-div-4 rdylgn-11-div-5 rdylgn-11-div-6 rdylgn-11-div-7 rdylgn-11-div-8 rdylgn-11-div-9 rdylgn-11-div-10 rdylgn-11-div-11 rdylbu-11-div-1 rdylbu-11-div-2 rdylbu-11-div-3 rdylbu-11-div-4 rdylbu-11-div-5 rdylbu-11-div-6 rdylbu-11-div-7 rdylbu-11-div-8 rdylbu-11-div-9 rdylbu-11-div-10 rdylbu-11-div-11 rdbu-11-div-1 rdbu-11-div-2 rdbu-11-div-3 rdbu-11-div-4 rdbu-11-div-5 rdbu-11-div-6 rdbu-11-div-7 rdbu-11-div-8 rdbu-11-div-9 rdbu-11-div-10 rdbu-11-div-11 rdgy-11-div-1 rdgy-11-div-2 rdgy-11-div-3 rdgy-11-div-4 rdgy-11-div-5 rdgy-11-div-6 rdgy-11-div-7 rdgy-11-div-8 rdgy-11-div-9 rdgy-11-div-10 rdgy-11-div-11 prgn-11-div-1 prgn-11-div-2 prgn-11-div-3 prgn-11-div-4 prgn-11-div-5 prgn-11-div-6 prgn-11-div-7 prgn-11-div-8 prgn-11-div-9 prgn-11-div-10 prgn-11-div-11 piyg-11-div-1 piyg-11-div-2 piyg-11-div-3 piyg-11-div-4 piyg-11-div-5 piyg-11-div-6 piyg-11-div-7 piyg-11-div-8 piyg-11-div-9 piyg-11-div-10 piyg-11-div-11)
+	">${colineend}
+	##set the color for chromosomes color
+	chr_color=(rdylgn-11-div-1 rdylgn-11-div-2 rdylgn-11-div-3 rdylgn-11-div-4 rdylgn-11-div-5 rdylgn-11-div-6 rdylgn-11-div-7 rdylgn-11-div-8 rdylgn-11-div-9 rdylgn-11-div-10 rdylgn-11-div-11 rdylbu-11-div-1 rdylbu-11-div-2 rdylbu-11-div-3 rdylbu-11-div-4 rdylbu-11-div-5 rdylbu-11-div-6 rdylbu-11-div-7 rdylbu-11-div-8 rdylbu-11-div-9 rdylbu-11-div-10 rdylbu-11-div-11 rdbu-11-div-1 rdbu-11-div-2 rdbu-11-div-3 rdbu-11-div-4 rdbu-11-div-5 rdbu-11-div-6 rdbu-11-div-7 rdbu-11-div-8 rdbu-11-div-9 rdbu-11-div-10 rdbu-11-div-11 rdgy-11-div-1 rdgy-11-div-2 rdgy-11-div-3 rdgy-11-div-4 rdgy-11-div-5 rdgy-11-div-6 rdgy-11-div-7 rdgy-11-div-8 rdgy-11-div-9 rdgy-11-div-10 rdgy-11-div-11 prgn-11-div-1 prgn-11-div-2 prgn-11-div-3 prgn-11-div-4 prgn-11-div-5 prgn-11-div-6 prgn-11-div-7 prgn-11-div-8 prgn-11-div-9 prgn-11-div-10 prgn-11-div-11 piyg-11-div-1 piyg-11-div-2 piyg-11-div-3 piyg-11-div-4 piyg-11-div-5 piyg-11-div-6 piyg-11-div-7 piyg-11-div-8 piyg-11-div-9 piyg-11-div-10 piyg-11-div-11)
 
-local chr_num=`cut -d " "  -f7 ${karyotype}|wc -l`  #获取染色体的条数
-local chrS=(`cut -d " "  -f7 ${karyotype}|tr "\n" " "`)  #获取染色体的字符，存储为数组
-local chr_order=$((chr_num - 1))  #染色体条数-1，因为下标是从0开始的
-local chrlen=`seq 0 $chr_order`  #生成0到染色体数量-1的连续数字向量
+	local chr_num=`cut -d " "  -f7 ${karyotype}|wc -l`  #获取染色体的条数
+	local chrS=(`cut -d " "  -f7 ${karyotype}|tr "\n" " "`)  #获取染色体的字符，存储为数组
+	local chr_order=$((chr_num - 1))  #染色体条数-1，因为下标是从0开始的
+	local chrlen=`seq 0 $chr_order`  #生成0到染色体数量-1的连续数字向量
 
-##使用循环生成染色体的颜色文件
-for i in $chrlen;
-do
-	echo -e "
+	##使用循环生成染色体的颜色文件
+	for i in $chrlen;
+	do
+		echo -e "
 <rule>
 condition = var(chr1) eq \"${chrS[i]}\" 
 color = ${chr_color[i]}
 </rule>" >>${colinemiddle}
-done
+	done
 
-cat ${colinehead} ${colinemiddle} ${colineend} >coline.conf.txt
-if [ $? -eq 0 ];then
-	echo "done!Output file is:
-	coline.conf.txt
-	"
-else
-	echo "ERROR in moudule confcoline!"
-	exit 1
-fi
+	cat ${colinehead} ${colinemiddle} ${colineend} >coline.conf.txt
+	if [ $? -eq 0 ];then
+		echo "done!Output file is:
+		coline.conf.txt
+		"
+	else
+		error_exit "ERROR in moudule confcoline!"
+	fi
 }
 
 #getR0R1 number total_number
@@ -1034,10 +983,11 @@ function getR0R1(){
 		getR0R1 2 18 
 		
 		Output:
-		number.lap.txt
+		R0 and R1 values printed to stdout
 		
 		Notes:
-		number is integer.The number indicates the nth circle from the outside to the inside in the circle diagram. 
+		一共2个参数，参数1是当前的圈数，参数2是总圈数。从V0.04开始圈数是从内往外数。
+		number is integer.The number indicates the nth circle from the inside to the outside in the circle diagram. 
 		total_number is integer, Indicates the total number of laps.
 		"
 	
@@ -1053,31 +1003,45 @@ function getR0R1(){
 	esac
 	local number=$1
 	local total_number=$2
-	local calc_circos=`awk -v total_number=${total_number} 'BEGIN{if (total_number%2==0){print total_number} else {print total_number+1}}'` #计算圈数，如果是奇数，则自动取比奇数大1的偶数
-	local steplen=`awk -v calc_circos=${calc_circos} 'BEGIN{print 0.9/calc_circos}'` #每个圈的宽度
+	
+	#计算圈数
+	local calc_circos=$total_number
+	# 计算每圈宽度
+	local steplen=$(awk -v c="$calc_circos" 'BEGIN{printf "%.4f", 1 / c}')
 	#blanklen=`awk -v calc_circos=${calc_circos} 'BEGIN{0.9/calc_circos*0.1}'` #每个圈的间隔
-	local numb=`awk -v number=${number} -v calc_circos=${calc_circos} 'BEGIN{ print calc_circos - number }'` #获取逆向的圈数，这样输出的是从外向内的圈数。意思是从外开始算第1圈，如果直接numb=number，则是从内开始计算圈数，但是如果总圈数是奇数的话，会出现最后一圈是空。
-	R1=`awk -v number=${numb} -v steplen=${steplen} 'BEGIN{ if (0.1 + steplen*number == 1) {print "0.99"} else { print 0.1 + steplen*number}}'`  #生成外半径 #控制外圈最大不超过1，最大只能是0.99
-	R0=`awk -v number=${numb} -v steplen=${steplen} 'BEGIN{print 0.1+ (number-1)*steplen + number*0.1*steplen}'`  #生成内半径 ，内半径最小是0.1
-	echo " 圈数是 $number 每圈的宽度是$steplen 内圈直径 $R0  外圈直径$R1"
-	echo "R0=$R0
-	R1=$R1
-	" >${number}.lap.txt
+	# 计算圈数（从内到外）
+	local numb=${number}  #$(( calc_circos - number )) #从外到内
+	# 计算外半径（控制最大不超过0.99）
+	R1=$(awk -v n="$numb" -v s="$steplen" 'BEGIN{
+		r = s * n - 0.01
+		printf "%.3f", (r >= 1) ? 0.99 : r
+	}')
+
+	# 计算内半径（最小为0）
+	R0=$(awk -v n="$numb" -v s="$steplen" 'BEGIN{
+		r = s * (n - 1)
+		printf "%.3f", r
+	}')
+	echo "圈数是 $number 每圈的宽度是$steplen 内圈直径 $R0  外圈直径$R1"
+	echo "R0=${R0}"
+	echo "R1=${R1}"
 }
+
 #histogram numfile number color prefix
 function histogram(){
 	case $1 in
 	-h|--help)
 		echo -e "
 		Usage:
-		histogram numfile number total_number color prefix
+		histogram numfile number total_number color [prefix]
 		
 		Example:
+		histogram genes_num.txt 2 18 green
 		histogram genes_num.txt 2 18 green genedensity
 		histogram genes_num.txt 2 21 152,28,230 genedensity
 		histogram genes_num.txt 2 10 #8def3c genedensity
 		
-		Output:
+		Output:(如果不提供输出前缀，则输出到标准输出)
 		prefix.plot
 		
 		Notes:
@@ -1090,7 +1054,7 @@ function histogram(){
 	exit 1
 	;;
 	*)
-		if [ $# -ne 5 ];
+		if [ $# -lt 4 ];
 		then
 			echo "Usage:histogram numfile number total_number color prefix"
 			exit 1
@@ -1098,17 +1062,19 @@ function histogram(){
 	;;
 	esac
 
-	if [ -e $1 ];then
-		local numfile=$1
-	else
-		echo "ERROR：input file $1 is not exist!"
-	fi
+	check_file_exists "$1"
+	
+	local numfile=$1
 	local number=$2
 	local total_number=$3
 	local color=$4
-	local prefix=$5
-getR0R1 $number ${total_number}
-	echo -e "
+	if [ $# -eq 4 ];then
+		local prefix=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 16)
+	else
+		local prefix=$5
+	fi
+	getR0R1 $number ${total_number}
+		echo -e "
 <plot>
 type = histogram
 file = ${numfile}
@@ -1118,13 +1084,17 @@ r1   = ${R1}r
 r0   = ${R0}r
 </plot>" > ${prefix}.plot
 	if [ $? -eq 0 ];then
-	echo "done!
-		Output file is:
-		${prefix}.plot
-	"
+		if [ $# -eq 4 ];then
+			cat ${prefix}.plot
+			rm -rf ${prefix}.plot
+		else
+			echo "done!
+				Output file is:
+				${prefix}.plot
+				"
+		fi
 	else
-		echo "ERROR: in module histogram!"
-		exit 1
+		error_exit "ERROR in module histogram!"
 	fi
 }
 
@@ -1134,15 +1104,16 @@ function heatmap(){
 	-h|--help)
 		echo -e "
 		Usage:
-		heatmap numfile number total_number sequential prefix
+		heatmap numfile number total_number sequential [prefix]
 		
 		Example:
+		heatmap genes_num.txt 3 18 reds-9-seq 
 		heatmap genes_num.txt 3 18 reds-9-seq genedensity
 		heatmap genes_num.txt 3 21 oranges-9-seq genedensity
 		heatmap genes_num.txt 3 10 BuGn-9-seq genedensity
 		
 		Output:
-		prefix.plot
+		prefix.plot (如果不提供输出前缀，则输出到标准输出)
 		
 		Notes:
 		number is integer.The number indicates the nth circle from the outside to the inside in the circle diagram. 
@@ -1153,27 +1124,26 @@ function heatmap(){
 	exit 1
 	;;
 	*)
-		if [ $# -ne 5 ];
-		then
+		if [ $# -lt 4 ];then
 			echo "Usage:heatmap numfile number total_number color prefix"
 			exit 1
 		fi
 	;;
 	esac
 
-	if [ -e $1 ];then
-		local numfile=$1
-	else
-		echo "ERROR：input file $1 is not exist!"
-	fi
+	check_file_exists "$1"
 
+	local numfile=$1
 	local number=$2
 	local total_number=$3
 	local color=$4
-	local prefix=$5
-
-getR0R1 $number ${total_number}
-	echo -e "
+	if [ $# -eq 4 ];then
+		local prefix=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 16)
+	else
+		local prefix=$5
+	fi
+	getR0R1 $number ${total_number}
+		echo -e "
 <plot>
 type = heatmap
 file = ${numfile}
@@ -1183,30 +1153,36 @@ r1   = ${R1}r
 r0   = ${R0}r
 </plot>" > ${prefix}.plot
 	if [ $? -eq 0 ];then
-	echo "done!
-		Output file is:
-		${prefix}.plot
-	"
+		if [ $# -eq 4 ];then
+			cat ${prefix}.plot
+			rm -rf ${prefix}.plot
+		else
+			echo "done!
+				Output file is:
+				${prefix}.plot
+			"
+		fi
 	else
-		echo "ERROR: in module heatmap!"
-		exit 1
+		error_exit "ERROR in module heatmap!"
 	fi
 }
+
 #line numfile number color prefix
 function lineplot(){
 	case $1 in
 	-h|--help)
 	echo -e "
 		Usage:
-		lineplot numfile number total_numer color prefix
+		lineplot numfile number total_numer color [prefix]
 		
 		Example:
+		lineplot genes_num.txt 2 18 green
 		lineplot genes_num.txt 2 18 green genedensity
 		lineplot genes_num.txt 2 20 152,28,230 genedensity
 		lineplot genes_num.txt 2 11 #8def3c genedensity
 		
 		Output:
-		prefix.plot
+		prefix.plot (如果没输入前缀，则输出到标准输出)
 		
 		Notes:
 		number is integer.The number indicates the nth circle from the outside to the inside in the circle diagram. 
@@ -1217,7 +1193,7 @@ function lineplot(){
 	exit 1
 	;;
 	*)
-		if [ $# -ne 5 ];
+		if [ $# -lt 4 ];
 		then
 			echo "Usage:lineplot numfile number total_number color prefix"
 			exit 1
@@ -1225,17 +1201,19 @@ function lineplot(){
 	;;
 	esac
 
-	if [ -e $1 ];then
-		local numfile=$1
-	else
-		echo "ERROR：input file $1 is not exist!"
-	fi
+	check_file_exists "$1"
+	
+	local numfile=$1
 	local number=$2
 	local total_number=$3
 	local color=$4
-	local prefix=$5
+	if [ $# -eq 4 ]; then
+		local prefix=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 16)
+	else
+		local prefix=$5
+	fi
 
-getR0R1 $number ${total_number}
+	getR0R1 $number ${total_number}
 	echo -e "
 <plot>
 type = line
@@ -1246,50 +1224,544 @@ r1   = ${R1}r
 r0   = ${R0}r
 </plot>" > ${prefix}.plot
 	if [ $? -eq 0 ];then
-	echo "done!
-		Output file is:
-		${prefix}.plot
-	"
+		if [ $# -eq 4 ];then
+			cat ${prefix}.plot
+			rm -rf ${prefix}.plot
+		else
+			echo "done!
+				Output file is:
+				${prefix}.plot
+			"
+		fi
 	else
-		echo "ERROR: in module lineplot!"
-		exit 1
+		error_exit "ERROR in module lineplot!"
+	fi
+}
+
+
+#LAI numfile number color prefix
+function laiplot(){
+		case $1 in
+	-h|--help)
+	echo -e "
+		Usage:
+		laiplot numfile number total_numer color [prefix]
+		
+		Example:
+		laiplot LAI_num.txt 2 18 green
+		laiplot LAI_num.txt 2 18 green LAI
+		laiplot LAI_num.txt 2 20 152,28,230 LAI
+		laiplot LAI_num.txt 2 11 #8def3c LAI
+		
+		Output:
+		prefix.plot (如果没输入前缀，则输出到标准输出)
+		
+		Notes:
+		number is integer.The number indicates the nth circle from the outside to the inside in the circle diagram. 
+		total_number is integer, Indicates the total number of laps.
+		color can be RGB color 160,160,160 or HEX color #8dd3c7 or normal color name.
+		"
+	
+	exit 1
+	;;
+	*)
+		if [ $# -lt 4 ];
+		then
+			echo "Usage:laiplot numfile number total_number color prefix"
+			exit 1
+		fi
+	;;
+	esac
+
+	check_file_exists "$1"
+	
+	local numfile=$1
+	local number=$2
+	local total_number=$3
+	local color=$4
+	if [ $# -eq 4 ]; then
+		local prefix=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 16)
+	else
+		local prefix=$5
+	fi
+
+	getR0R1 $number ${total_number}
+	echo -e "
+##LAI的散点图 参考https://blog.csdn.net/weixin_43569478/article/details/83824929
+<plot>
+type = scatter #散点图
+fill_color       = ${color} # 点的填充色grey
+stroke_color     = black #边框的颜色
+glyph            = circle
+glyph_size       = 3 # 元素大小
+file = ${numfile}
+r1   = ${R1}r
+r0   = ${R0}r
+
+#划分3个区间，每个区间不同的颜色。用于LAI的划分
+<backgrounds>
+<background>
+color = vvlgreen
+y0 = 20
+</background>
+<background>
+color = vlgrey
+y1 = 20
+y0 = 10
+</background>
+<background>
+color = vvlred
+y0 =10
+</background>
+
+</backgrounds>
+##设置y轴刻度线
+<axes>
+<axis>
+color = lgreen
+thickness = 1p
+spacing = 0.05r
+y1 = 20
+y0 = 10
+</axis>
+</axes>
+</plot>
+" > ${prefix}.plot
+	if [ $? -eq 0 ];then
+		if [ $# -eq 4 ];then
+			cat ${prefix}.plot
+			rm -rf ${prefix}.plot
+		else
+			echo "done!
+				Output file is:
+				${prefix}.plot
+			"
+		fi
+	else
+		error_exit "ERROR in module laiplot!"
 	fi
 }
 
 #conf 
 function conf(){
-	case $1 in
-		-h|--help)
-			echo "
-			Usage:
-			-cc|confcoline
-			-hi|histogram
-			-hm|heatmap
-			-line|line
-			"
-			exit 1
+	# 如果没有参数或请求帮助
+	if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+		echo "
+		Usage:
+		conf [OPTIONS]...
+		
+		Options:
+		-cc|confcoline    Configure collinearity plot	参数1指定总共的圈数。
+		-hi|histogram     Configure histogram plot		参数1是XXX_num.txt文件，参数2是当前圈数，参数3是总圈数，参数4是绘图颜色，可以省略,参数5是输出前缀，可以省略
+		-hm|heatmap       Configure heatmap plot		参数1是XXX_num.txt文件，参数2是当前圈数，参数3是总圈数，参数4是绘图颜色，可以省略,参数5是输出前缀，可以省略
+		-line|line        Configure line plot			参数1是XXX_num.txt文件，参数2是当前圈数，参数3是总圈数，参数4是绘图颜色，可以省略,参数5是输出前缀，可以省略
+		-lai|lai          Configure LAI plot			参数1是XXX_num.txt文件，参数2是当前圈数，参数3是总圈数，参数4是绘图颜色，可以省略,参数5是输出前缀，可以省略
+		Each option can be followed by its specific parameters.
+		The total number of plot options determines the total circle count.
+		The order of options determines the drawing order from inside to outside.
+		
+		Note:
+		- -cc can only be used once at most and will be placed in the innermost circle (position 1)
+        - If total circle count exceeds 8, a warning will be displayed
+        - All plot configurations will be merged into a single conf.txt file
+		
+		Examples:
+		conf -hi genes_num.txt 2 green genedensity
+		conf -hi genes_num.txt 2 green genedensity -hm GC_num.txt 3 reds-9-seq gc_content
+		conf -cc 5 -hi genes_num.txt 2 green genedensity
+		conf -hi genes_num.txt -hm GC_num.txt  # 使用默认参数
+		conf -hi genes_num.txt -hi repeats_num.txt -hm GC_num.txt  # 同一类型多次出现
+		conf -cc 5 -hi genes_num.txt -hi repeats_num.txt -hm GC_num.txt -lai LAI_num.txt # 同一类型多次出现
+		
+		注意：运行模式分2种，
+		模式1：一次只传入一个参数，例如conf -cc 5或者conf -hi genes_num.txt 2 5 这种会只输出这1个类型的conf文件。
+		模式1输入参数支持-cc或confcoline这种完全格式。
+		模式2：一次传入所有的参数，例如：conf -hi genes_num.txt 2 green genedensity -hm GC_num.txt 3 reds-9-seq gc_content 
+		这种情况下会把所有参数当做一个完整的绘图文件，会从前到后作为从内到外的绘图圈，最终输出所有的绘图文件到1个conf,直接使用circos -conf conf文件即可绘图了。
+		模式2输入参数的时候，必须是-cc -hi -hm -line -lai这5种格式，不支持完全格式，因为完全模式会把参数错误判断为输入的文件名。
+		"
+		exit 1
+	fi
+	# 用于存储所有参数的数组
+	params=()
+	local origin_total_count=0
+  	local cc_count=0
+	# 首先计算总共有多少个绘图参数
+	local i=1
+	local arg_1="" #统计有多少个-cc|-hm|-hi|-line|-lai这种参数
+	while [ $i -le $# ]; do
+		arg_1="${!i}"
+		case $arg_1 in
+			-cc|confcoline|-hm|heatmap|-hi|histogram|-line|line|-lai|lai)
+				origin_total_count=$((origin_total_count + 1))
+				if [ "$arg_1" = "-cc" ] || [ "$arg_1" = "confcoline" ]; then
+                    cc_count=$((cc_count + 1))
+                fi
+				;;
+		esac
+		i=$((i + 1))
+	done
+	#判断如果是单命令格式，则只输出结果当前命令的文件.不用输出全局的其他文件。
+	if [ $origin_total_count -eq 1 ];then
+		local single_arg=$(eval echo \$1)
+		local single_params=("${@:2}") # 获取该参数后的所有参数
+		local single_conf="${single_arg#-}.conf" # 生成单命令对应的conf文件名（如-hi→hi.conf）
+		case $single_arg in
+			-cc|confcoline)
+				confcoline "${single_params[@]}"
+				;;
+			-hm|heatmap)
+				heatmap "${single_params[@]}"
 			;;
-		-cc|confcoline)
-			shift
-			confcoline $@
+			-hi|histogram)
+				histogram "${single_params[@]}"
 			;;
-		-hm|heatmap)
-			shift
-			heatmap $@
+			-line|line)
+				lineplot "${single_params[@]}"
 			;;
-		-hi|histogram)
-			shift
-			histogram $@
+			-lai|lai)
+				laiplot "${single_params[@]}"
 			;;
-		-line|line)
-			shift
-			lineplot $@
-			;;
+		esac
+		exit 
+	fi
+	# 检查-cc参数使用次数
+    if [ $cc_count -gt 1 ]; then
+        error_exit "-cc/confcoline can only be used once at most!"
+    fi
+
+    # 检查总圈数是否超过8圈
+    if [ $origin_total_count -gt 8 ]; then
+        echo "Warning: Total circle count ($origin_total_count) exceeds 8 circles. The content of each circle may not be clearly visible to the human eye."
+    fi
+
+	#定义染色体文件和刻度文件
+	local karyotype="karyotype.txt"
+	local ticks="ticks.conf"
+	check_file_exists "${karyotype}"
+
+	# 预定义的颜色列表
+	local colors=("red" "green" "blue" "orange" "purple" "brown" "pink" "gray" "olive" "cyan" "#8dd3c7" "#ffffb3" "#bebada" "#fb8072" "#80b1d3" "#fdb462" "#b3de69" "#fccde5" "#d9d9d9" "#bc80bd")
+	local heatmaps=("reds-9-seq" "blues-9-seq" "greens-9-seq" "oranges-9-seq" "purples-9-seq" "redblue-9-div" "rdylgn-9-div" "rdylbu-9-div" "spectral-9-div" "piyg-9-div")
+ 	
+	# 创建临时文件用于存储各个plot配置
+    local temp_conf=$(mktemp -p ${PWD}) || exit 1
+    trap 'rm -f "$temp_conf"' EXIT
+
+	##set the color for chromosomes color
+	local chr_color=(rdylgn-11-div-1 rdylgn-11-div-2 rdylgn-11-div-3 rdylgn-11-div-4 rdylgn-11-div-5 rdylgn-11-div-6 rdylgn-11-div-7 rdylgn-11-div-8 rdylgn-11-div-9 rdylgn-11-div-10 rdylgn-11-div-11 rdylbu-11-div-1 rdylbu-11-div-2 rdylbu-11-div-3 rdylbu-11-div-4 rdylbu-11-div-5 rdylbu-11-div-6 rdylbu-11-div-7 rdylbu-11-div-8 rdylbu-11-div-9 rdylbu-11-div-10 rdylbu-11-div-11 rdbu-11-div-1 rdbu-11-div-2 rdbu-11-div-3 rdbu-11-div-4 rdbu-11-div-5 rdbu-11-div-6 rdbu-11-div-7 rdbu-11-div-8 rdbu-11-div-9 rdbu-11-div-10 rdbu-11-div-11 rdgy-11-div-1 rdgy-11-div-2 rdgy-11-div-3 rdgy-11-div-4 rdgy-11-div-5 rdgy-11-div-6 rdgy-11-div-7 rdgy-11-div-8 rdgy-11-div-9 rdgy-11-div-10 rdgy-11-div-11 prgn-11-div-1 prgn-11-div-2 prgn-11-div-3 prgn-11-div-4 prgn-11-div-5 prgn-11-div-6 prgn-11-div-7 prgn-11-div-8 prgn-11-div-9 prgn-11-div-10 prgn-11-div-11 piyg-11-div-1 piyg-11-div-2 piyg-11-div-3 piyg-11-div-4 piyg-11-div-5 piyg-11-div-6 piyg-11-div-7 piyg-11-div-8 piyg-11-div-9 piyg-11-div-10 piyg-11-div-11)
+	local chr_num=`cut -d " "  -f3 ${karyotype}|wc -l`  #获取染色体的条数
+	local chrS=(`cut -d " "  -f3 ${karyotype}|tr "\n" " "`)  #获取染色体的字符，存储为数组
+	local chr_order=$((chr_num - 1))  #染色体条数-1，因为下标是从0开始的
+	local chrlen=`seq 0 $chr_order`  #生成0到染色体数量-1的连续数字向量
+	local color_len=${#chr_color[@]} #获取染色体颜色的长度
+	local first_chr=$(cut -d ' ' -f3 "${karyotype}" | head -1) 	# 获取第一条染色体的字符串（直接提取第3列，不额外嵌套括号）
+	local last_chr=$(cut -d ' ' -f3 "${karyotype}" | tail -1) 	# 获取最后一条染色体的字符串
+	# 判断是否需要扩展染色体颜色数组，如果染色体数量超过预设的值则循环扩充颜色
+	if (( chr_num > color_len )); then
+		# 计算需要补充的元素数量
+		need=$(( chr_num - color_len ))
+		# 扩展数组（重复原数组元素直到达到目标长度）
+		for ((i=0; i<need; i++)); do
+			# 循环使用原数组元素（取模运算实现循环）
+			index=$(( i % color_len ))
+			chr_color+=("${chr_color[index]}")
+		done
+	fi
+	#先输出conf的最开始的定义
+	printf "karyotype = ${karyotype} #定义基因组的染色体大小文件\n<<include ${ticks}>> #引入自定义的刻度配置文件，目录是相对路径\n" >${temp_conf}
+	#遍历染色体输出染色体的颜色配置
+	for ((i=0; i<${chr_num}; i++)); do
+		if (( $i == 0 ));then
+			printf "chromosomes_color = ${chrS[i]}=${chr_color[i]},"
+		elif (( $i == ${chr_num} -1 ));then
+			printf "${chrS[i]}=${chr_color[i]}\n"
+		else
+			printf "${chrS[i]}=${chr_color[i]},"
+		fi
+	done >>${temp_conf}
+	# 重新处理参数，按顺序执行每个绘图配置
+	local current_index=1
+	local param_index=1
+	# 用于跟踪每种类型出现的次数，以生成不同的默认前缀
+	local hi_count=0
+	local hm_count=0
+	local line_count=0
+	local lai_count=0
+	# 标记是否已处理过-cc参数
+    local cc_processed=0
+	local arg="" #初始化总参数变量
+	printf "<plots>\n" >>$temp_conf  #循环开始前先输出plots最前面的标签
+	while [ $param_index -le $# ]; do
+		arg=${!param_index}
+		case $arg in
+			-cc|confcoline)
+				 # 检查-cc是否已经处理过（防止重复处理）
+                if [ $cc_processed -eq 1 ]; then
+                    param_index=$((param_index + 1))
+                    continue
+                fi
+				
+				# 收集confcoline的参数
+				local confcoline_params=()
+				local j=$((param_index + 1))
+				
+				# 收集直到下一个选项或参数结束的所有参数
+				while [ $j -le $# ]; do
+					local next_arg="${!j}" #注意参数赋值后面必须使用双引号包括，否则会无法正确识别
+					case $next_arg in
+						-cc|confcoline|-hm|heatmap|-hi|histogram|-line|line|-lai|lai)
+							break
+							;;
+						*)
+							confcoline_params+=("$next_arg")
+							j=$((j + 1))
+							;;
+					esac
+				done
+				local total_count=1
+				local karyotype="karyotype.txt"
+				local coline_num_file="coline_num.txt"
+				#用户如果提供总圈数，则使用。不提供则使用前面计算的总圈数。
+				# 根据参数数组长度设置变量
+				case ${#confcoline_params[@]} in
+					0) total_count="${origin_total_count}" ;;
+					1) total_count=${confcoline_params[0]} ;;
+					2) coline_num_file=${confcoline_params[0]}; total_count=${confcoline_params[1]} ;;
+					3) karyotype=${confcoline_params[0]}; coline_num_file=${confcoline_params[1]}; total_count=${confcoline_params[2]} ;;
+				esac
+				 # 临时重定向confcoline的输出到文件而不是标准输出
+				echo "confcoline的传入参数是：${karyotype} ${coline_num_file} ${total_count}"
+				confcoline "${karyotype}" "${coline_num_file}" "${total_count}"
+				cat coline.conf.txt >> $temp_conf
+				sed -i '/^<plots>$/d' $temp_conf #删除最开始的<plots>这1行，因为共线性文件应该是在plots标签外面，所以在输出共线性文件之后再添加上plots标签
+				printf "<plots>\n" >>$temp_conf  #输出plots最前面的标签
+				cc_processed=1
+				param_index=$j
+                ;;
+			-hm|heatmap)
+				# 增加热图计数
+				hm_count=$((hm_count + 1))
+				# 收集heatmap的参数
+				local heatmap_params=()
+				local j=$((param_index + 1))
+				local next_arg=""  #定义内部变量
+				# 收集直到下一个选项或参数结束的所有参数
+				while [ $j -le $# ]; do
+					next_arg="${!j}"
+					case $next_arg in
+						-cc|confcoline|-hm|heatmap|-hi|histogram|-line|line|-lai|lai)
+							break
+							;;
+						*)
+							heatmap_params+=("$next_arg")
+							j=$((j + 1))
+							;;
+					esac
+				done
+				#更新param_index到下一个未处理参数的位置
+				param_index=$j
+				# 添加位置和总数参数
+				local position=$current_index
+				if [ $cc_count -eq 1 ]; then
+                    position=$((current_index + 1))
+                fi
+				# 如果没有提供足够的参数，则使用默认值
+				if [ ${#heatmap_params[@]} -eq 0 ]; then
+					error_exit "heatmap requires at least a data file"
+				fi
+				local numfile=${heatmap_params[0]}
+				# 利用参数索引直接赋值，避免多个if判断
+				position=${heatmap_params[1]:-$position} # 未提供,则使用原来的position
+				local total_count="${heatmap_params[2]:-$origin_total_count}" # 未提供则,则使用原来的total_count
+				local color="${heatmap_params[3]:-reds-9-seq}" #未提供，则使用reds-9-seq
+				local prefix="${heatmap_params[4]:-heatmap_${position}}" #未提供输出前缀，则使用格式_圈数
+				check_file_exists "$numfile"
+				#执行函数，获取对应的conf输出
+				heatmap ${numfile} ${position} ${total_count} ${color} ${prefix}
+				cat ${prefix}.plot >> ${temp_conf}
+				current_index=$((current_index + 1))
+				;;
+			-hi|histogram)
+				# 增加直方图计数
+				hi_count=$((hi_count + 1))
+				# 收集histogram的参数
+				local histogram_params=()
+				local j=$((param_index + 1))
+				local next_arg="" #初始化循环参数
+				# 收集直到下一个选项或参数结束的所有参数
+				while [ $j -le $# ]; do
+					next_arg="${!j}"
+					case $next_arg in
+						-cc|confcoline|-hm|heatmap|-hi|histogram|-line|line|-lai|lai)
+							break
+							;;
+						*)
+							histogram_params+=("$next_arg")
+							j=$((j + 1))
+							;;
+					esac
+				done
+				#更新param_index到下一个未处理参数的位置
+				param_index=$j
+				# 添加位置和总数参数
+				local position=$current_index
+				if [ $cc_count -eq 1 ]; then
+                    position=$((current_index + 1))
+                fi
+				# 如果没有提供足够的参数，则使用默认值
+				if [ ${#histogram_params[@]} -eq 0 ]; then
+					error_exit "histogram requires at least a data file"
+				fi
+				local numfile=${histogram_params[0]}
+				# 利用参数索引直接赋值，避免多个if判断
+				position=${histogram_params[1]:-$position}    # 未提供,则使用原来的position
+				local total_count=${histogram_params[2]:-$origin_total_count} # 未提供则,则使用原来的total_count
+				local color="${histogram_params[3]:-greens-9-seq}" #未提供，则使用greens-9-seq
+				local prefix="${histogram_params[4]:-histogram_${position}}" #未提供输出前缀，则使用格式_圈数
+				check_file_exists "$numfile"
+				histogram ${numfile} ${position} ${total_count} ${color} ${prefix}
+				cat ${prefix}.plot >> ${temp_conf}
+				current_index=$((current_index + 1))
+				;;
+				
+			-line|line)
+				# 增加线图计数
+				line_count=$((line_count + 1))
+				
+				# 收集line的参数
+				local line_params=()
+				local j=$((param_index + 1))
+				local next_arg="" #定义内部变量
+				# 收集直到下一个选项或参数结束的所有参数
+				while [ $j -le $# ]; do
+					next_arg="${!j}" #循环获取对应的参数
+					case $next_arg in
+						-cc|confcoline|-hm|heatmap|-hi|histogram|-line|line|-lai|lai)
+							break
+							;;
+						*)
+							line_params+=("$next_arg")
+							j=$((j + 1))
+							;;
+					esac
+				done
+				param_index=$j #更新param_index到下一个未处理参数的位置
+				# 添加位置和总数参数
+				local position=$current_index
+				if [ $cc_count -eq 1 ]; then
+                    position=$((current_index + 1))
+                fi
+				# 如果没有提供足够的参数，则使用默认值
+				if [ ${#line_params[@]} -eq 0 ]; then
+					error_exit "line plot requires at least a data file"
+				fi
+				local numfile=${line_params[0]}
+				# 利用参数索引直接赋值
+				position=${line_params[1]:-$position}    # 未提供,则使用原来的position
+				local total_count="${line_params[2]:-$origin_total_count}" # 未提供则,则使用原来的total_count
+				local color="${line_params[3]:-blues-9-seq}" #未提供，则使用blues-9-seq
+				local prefix="${line_params[4]:-line_${position}}" #未提供输出前缀，则使用格式_圈数
+				check_file_exists "$numfile"
+				lineplot ${numfile} $position $total_count ${color} ${prefix}
+				cat ${prefix}.plot >> ${temp_conf}
+				current_index=$((current_index + 1))
+				;;
+			-lai|lai)
+				# 增加线图计数
+				lai_count=$((lai_count + 1))
+				# 收集lai的参数
+				local lai_params=()
+				local j=$((param_index + 1))
+				local next_arg="" #初始化循环参数
+				# 收集直到下一个选项或参数结束的所有参数
+				while [ $j -le $# ]; do
+					next_arg=${!j}
+					case $next_arg in
+						-cc|confcoline|-hm|heatmap|-hi|histogram|-line|line|-lai|lai)
+							break
+							;;
+						*)
+							lai_params+=("$next_arg")
+							j=$((j + 1))
+							;;
+					esac
+				done
+				param_index=$j #更新param_index到下一个未处理参数的位置
+				# 添加位置和总数参数
+				local position=$current_index
+				if [ $cc_count -eq 1 ]; then
+                    position=$((current_index + 1))
+                fi
+				# 如果没有提供足够的参数，则使用默认值
+				if [ ${#lai_params[@]} -eq 0 ]; then
+					error_exit "lai plot requires at least a data file"
+				fi
+				local numfile=${lai_params[0]}
+				# 利用参数索引直接赋值，避免多个if判断
+				position=${lai_params[1]:-$position}    # 未提供,则使用原来的position
+				local total_count="${lai_params[2]:-$origin_total_count}" # 未提供则,则使用原来的total_count
+				local color="${lai_params[3]:-grey}" #未提供，则使用默认的grey
+				local prefix="${lai_params[4]:-lai_${position}}" #未提供输出前缀，则使用格式_圈数
+				check_file_exists "$numfile"
+				laiplot ${numfile} ${position} ${total_count} ${color} ${prefix}
+				cat ${prefix}.plot >> ${temp_conf}
+				current_index=$((current_index + 1))
+				;;
 			*)
-			echo "-h or --help for help!"
-			exit 1
-			;;
-	esac
+				error_exit "Unknown option: $arg
+Use -h or --help for help"
+				;;
+		esac
+	done
+	# 生成配置文件
+	###最后输出其他的控制文件
+echo -e "
+</plots>
+<ideogram>
+<spacing>
+default = 0.005r #文本和染色体骨架之间的距离
+
+#设置染色体之间空出个距离，用来标图例a,b,c,d,e,f
+<pairwise ${last_chr};${first_chr}>  #染色体名称是karyotype.Spo.txt中第3列的名称
+spacing = 5r #设置第一个和最后一个染色体中间空出5*default（0.005r）的距离
+</pairwise>
+
+</spacing>
+
+radius           = 0.85r
+thickness        = 20p #坐标轴的染色体的厚度
+fill             = yes
+show_bands      = yes #设置染色体条带填充，如果不想用条带填充，只用颜色，就设置为no
+fill_bands      = yes
+stroke_color     = dgrey #轮廓颜色
+stroke_thickness = 2p #轮廓粗细
+show_label     = yes #展示标签
+label_font     = default # 字体
+label_radius   = dims(ideogram,radius) + 0.09r #染色体标签距离圆心的距离
+label_size     = 14 # 字体大小
+label_parallel = yes # 是否平行
+label_format   = eval(sprintf('%s',var(chr))) # 格式
+
+</ideogram>
+
+<image>
+# 覆盖在 etc/image.conf 中定义的 angle_offset
+angle_offset* = -85  #指定旋转角度，用于插入图例的位置
+dir* = . #输出文件夹
+radius* = 500p #图片半径
+svg* = yes #是否输出svg,默认是yes
+<<include etc/image.conf>>
+</image>
+
+<<include etc/colors_fonts_patterns.conf>>
+<<include etc/housekeeping.conf>>
+" >>${temp_conf}
+	cat ${temp_conf} >conf.txt
+	echo -e "done! All plot configurations merged into :conf.txt
+生成最终的绘图文件是conf.txt.
+使用circos -conf conf.txt 即可绘图。"
+	rm ${temp_conf}
 }
 
 #ticks chr_units
@@ -1316,44 +1788,43 @@ function ticks(){
 		chr_units=$1
 	fi
 	echo "
-#刻度ticks配置文件
-chromosomes_units = ${chr_units} #刻度盘最小刻度为1M,如果基因组比较大，可以增大该值
-show_ticks          = yes
-show_tick_labels    = yes
+	#刻度ticks配置文件
+	chromosomes_units = ${chr_units} #刻度盘最小刻度为1M,如果基因组比较大，可以增大该值
+	show_ticks          = yes
+	show_tick_labels    = yes
 
-<ticks>
-radius           = 1r #刻度线显示的位置
-color            = black #刻度线的颜色
-thickness        = 1p #设置线条粗细
-multiplier       = 1e-6 #输出的标签值：为实际长度与其相乘
-format           = %d # %d表示显示整数
+	<ticks>
+	radius           = 1r #刻度线显示的位置
+	color            = black #刻度线的颜色
+	thickness        = 1p #设置线条粗细
+	multiplier       = 1e-6 #输出的标签值：为实际长度与其相乘
+	format           = %.2f # %d表示显示整数, %.2f显示2位小数
 
-##刻度线的参数
-<tick>
-spacing        = 1u #刻度线之间的间隔（小锯齿的刻度1u,1*multiplier=1*10e-6）即1M
-size           = 5p #刻度线的长度
-</tick>
+	##刻度线的参数
+	<tick>
+	spacing        = 1u #刻度线之间的间隔（小锯齿的刻度1u,1*multiplier=1*10e-6）即1M
+	size           = 5p #刻度线的长度
+	</tick>
 
-##刻度线的标签的参数
-<tick>
-spacing        = 5u #大锯齿的间距 5*上面小锯齿的长度 5M
-size           = 10p #大锯齿的刻度的长度
-show_label     = yes #展示标签
-label_size     = 10p #文本大小
-label_offset   = 5p #刻度线的标签向外面移5p的距离，避免和刻度重叠
-format         = %d #显示证书
-</tick>
-</ticks>
-" >ticks.conf
+	##刻度线的标签的参数
+	<tick>
+	spacing        = 5u #大锯齿的间距 5*上面小锯齿的长度 5M
+	size           = 10p #大锯齿的刻度的长度
+	show_label     = yes #展示标签
+	label_size     = 10p #文本大小
+	label_offset   = 5p #刻度线的标签向外面移5p的距离，避免和刻度重叠
+	format         = %.1f # %d显示整数，%.1f显示1位小数。这个是指定刻度盘大刻度的字符显示，如果都是整数，则可以设置为%d
+	</tick>
+	</ticks>
+	" >ticks.conf
 
-if [ $? -eq 0 ];then
-	echo "done!
-	Output file is:
-	ticks.conf"
-else
-	echo "ERROR in module ticks"
-	exit 1
-fi
+	if [ $? -eq 0 ];then
+		echo "done!
+		Output file is:
+		ticks.conf"
+	else
+		error_exit "ERROR in module ticks"
+	fi
 }
 
 #draw circos.conf
@@ -1383,171 +1854,143 @@ function draw(){
 			;;
 	esac
 	
-	if ! [ -e $conffile ];then
-		echo "ERROR: ${conffile} is not exist!"
-		exit 1
-	fi
+	check_file_exists "${conffile}"
 	
-	conda activate circos 
-	circos --help
-	if ! [ $? -eq 0 ];then
-		echo -e "
-		Please make sure your circos sofware can be run !
-		ERROR: The circos software is not running properly!
-		"
-		exit 1
-	fi
-	circos -c ${conffile}
+	check_command_exists "circos"
+	
+	circos -conf ${conffile} -noparanoid 
 }
 
 function pipline(){
-	case $1 in
-		-h|--help)
-			echo -e "
-			Usage: pipline config.ini
-			Notes: please modify the info in config.ini.
-			"
-			exit 1
-		;;
-	esac
-	if [ -e $1 ];then
-		source $1
-	else
-		echo "ERROR:input file $1 in not exist!"
-		exit 1
-	fi
-	bash pipline.sh $1 
-	if [ $? -eq 0 ];then
-		echo "All done!"
-	else
-		echo "ERROR in pipline.sh!"
-		exit 1
+	bash pipline.bash $@ 
+	if [ $? -ne 0 ];then
+		error_exit "ERROR in pipline.sh!"
 	fi
 }
 
-	##Usage:
-	case $1 in 
-		-h|--help)
-		echo -e "
-		DrawCircos :A tools for draw circos prepare data
-		Version:0.03
-		Usage:
-		DrawCircos 
-		-h|--help 
-		
-		[ prepare Data ]		Usage				Purpose
-		-gw|getwindow		getwindow genome.fa windowsize prefix	for get window file 
-		-gd|genedensity		genedensity gff3file windowfile		for get gene density
-		-gGC|getGC		getGC genome.fa windowfile		for get GC content in genome 
-		-gv|getvcf		getvcf vcffile windowfile prefixname	for vcffile 
-		-gc|getcoline		getcoline colinefile genes.ID.bed		for coline file
-		-gL|getLAI		getLAI LAIfile				for LAI value
-		-gCop|getCopia		getCopia LTRfile windowfile		for repeat sequence of LTR type of Copia
-		-gGy|getGypsy		getGypsy LTRfile windowfile		for repeat sequence of LTR type of Gypsy
-		-gfL|getfullLTR		getfullLTR LAIfile			for repeat sequence of complete LTR
-		-gaL|getallLTR		getallLTR LAIfile			for repeat sequence of all LTR
-		-gIb|getIDbed		getIDbed gff3file type keyid		from gff3 file get bed file
-		-b2n|bed2num		bed2num bedfile windowfile prefix	from bed file get num file
-		-fpkm|fpkm		fpkm bamfile windowfile prefix		from bam file calculate fpkm in genome
-		
-		[ prepare require file ]		Usage			Purpose
-		-k|karyotype		karyotype genomelengthfile		get karyotype.txt
-		-c|conf			conf -cc/-hi/-hm/-line/-h			for coline/histogram/heatmap/line 4 type prepare conf file
-		-t|ticks		ticks chr_units 				prepare ticks.conf
-		
-		[ draw circos ]
-		-d|draw		draw conffile
-		
-		[ pipline ]
-		-p|pipline		pipline config.ini			a pipline for draw circos, all the input are set in config.ini
-		
-		[ Require softwares ]
-		samtools, bedtools, circos
-		
-		[ Author info ]
-		Author: Mol Chai 
-		Email: chaimol@163.com
-		Githubs: https://github.com/chaimol/DrawCircos
-		
-		[ Notes ]
-		1.please be careful of your gff3 type keyid ,make sure the output gene ID is same with your genome sequence. check it is 'Sp01G000010.1' or 'Sp01G000010' type.
-		2.all the output file ( _num.txt ) each columns are seprate by 1 space! these files will be used for draw the circos.
-		"
-			exit 1
-			;;
-		-gw|getwindow)
-			shift
-			getwindow $@
-			;;
-		-gd|genedensity)
-			shift
-			genedensity $@
-			;;
-		-gGC|getGC)
-			shift
-			getGC $@
-			;;
-		-gv|getvcf)
-			shift
-			getvcf $@
-			;;
-		-gc|getcoline)
-			shift
-			getcoline $@
-			;;
-		-gL|getLAI)
-			shift
-			getLAI $@
-			;;
-		-gIb|getIDbed)
-			shift
-			getIDbed $@
+##Usage:
+case $1 in 
+	-h|--help)
+	echo -e "
+	DrawCircos :A tools for draw circos prepare data
+	Version:0.04
+	Usage:
+	DrawCircos 
+	-h|--help 
+	
+	[ prepare Data ]		Usage				Purpose
+	-gw|getwindow		getwindow genome.fa windowsize prefix	for get window file 
+	-gd|genedensity		genedensity gff3file windowfile		for get gene density
+	-gGC|getGC		getGC genome.fa windowfile		for get GC content in genome 
+	-gv|getvcf		getvcf vcffile windowfile prefixname	for vcffile 
+	-gc|getcoline		getcoline colinefile genes.ID.bed		for coline file
+	-gL|getLAI		getLAI LAIfile				for LAI value
+	-gCop|getCopia		getCopia LTRfile windowfile		for repeat sequence of LTR type of Copia
+	-gGy|getGypsy		getGypsy LTRfile windowfile		for repeat sequence of LTR type of Gypsy
+	-gfL|getfullLTR		getfullLTR LAIfile			for repeat sequence of complete LTR
+	-gaL|getallLTR		getallLTR LAIfile			for repeat sequence of all LTR
+	-gIb|getIDbed		getIDbed gff3file type keyid		from gff3 file get bed file
+	-b2n|bed2num		bed2num bedfile windowfile prefix	from bed file get num file
+	-fpkm|fpkm		fpkm bamfile windowfile prefix		from bam file calculate fpkm in genome
+	
+	[ prepare require file ]		Usage			Purpose
+	-k|karyotype		karyotype genomelengthfile		get karyotype.txt
+	-c|conf			conf -cc/-hi/-hm/-line/-lai/-h			for coline/histogram/heatmap/line/lai 5 type prepare conf file
+	-t|ticks		ticks chr_units 				prepare ticks.conf
+	
+	[ draw circos ]
+	-d|draw		draw conffile
+	
+	[ pipline ]
+	-p|pipline		pipline config.ini			a pipline for draw circos, all the input are set in config.ini
+	
+	[ Require softwares ]
+	samtools, bedtools, circos
+	
+	[ Author info ]
+	Author: Mol Chai 
+	Email: chaimol@163.com
+	Githubs: https://github.com/chaimol/DrawCircos
+	
+	[ Notes ]
+	1.please be careful of your gff3 type keyid ,make sure the output gene ID is same with your genome sequence. check it is 'Sp01G000010.1' or 'Sp01G000010' type.
+	2.all the output file ( _num.txt ) each columns are seprate by 1 space! these files will be used for draw the circos.
+	"
+		exit 1
 		;;
-		-gCop|getCopia)
-			shift
-			getCopia $@
-			;;
-		-gGy|getGypsy)
-			shift
-			getGypsy $@
-			;;
-		-gfL|getfullLTR)
-			shift
-			getfullLTR $@
-			;;
-		-gaL|getallLTR)
-			shift
-			getallLTR $@
-			;;
-		-b2n|bed2num)
-			shift
-			bed2num $@
-			;;
-		-fpkm|fpkm)
-			shift
-			fpkm $@
-			;;
-		-k|karyotype)
-			shift
-			karyotype $@
-			;;
-		-c|conf)
-			shift
-			conf $@
-			;;
-		-t|ticks)
-			shift
-			ticks $@
-			;;
-		-d|draw)
-			shift
-			draw $@
-			;;
-		-p|pipline)
-			shift
-			pipline $@
-			;;
-		*)
-			echo "Use:-h or --help for help!"
-			;;
-	esac 
+	-gw|getwindow)
+		shift
+		getwindow $@
+		;;
+	-gd|genedensity)
+		shift
+		genedensity $@
+		;;
+	-gGC|getGC)
+		shift
+		getGC $@
+		;;
+	-gv|getvcf)
+		shift
+		getvcf $@
+		;;
+	-gc|getcoline)
+		shift
+		getcoline $@
+		;;
+	-gL|getLAI)
+		shift
+		getLAI $@
+		;;
+	-gIb|getIDbed)
+		shift
+		getIDbed $@
+	;;
+	-gCop|getCopia)
+		shift
+		getCopia $@
+		;;
+	-gGy|getGypsy)
+		shift
+		getGypsy $@
+		;;
+	-gfL|getfullLTR)
+		shift
+		getfullLTR $@
+		;;
+	-gaL|getallLTR)
+		shift
+		getallLTR $@
+		;;
+	-b2n|bed2num)
+		shift
+		bed2num $@
+		;;
+	-fpkm|fpkm)
+		shift
+		fpkm $@
+		;;
+	-k|karyotype)
+		shift
+		karyotype $@
+		;;
+	-c|conf)
+		shift
+		conf $@
+		;;
+	-t|ticks)
+		shift
+		ticks $@
+		;;
+	-d|draw)
+		shift
+		draw $@
+		;;
+	-p|pipline)
+		shift
+		pipline $@
+		;;
+	*)
+		echo "Use:-h or --help for help!"
+		;;
+esac 

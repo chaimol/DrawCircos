@@ -1,0 +1,153 @@
+karyotype = karyotype.txt #定义基因组的染色体大小文件
+chromosomes_color = Chr01=paired-11-qual-1,Chr02=paired-11-qual-2,Chr03=paired-11-qual-3,Chr04=paired-11-qual-4,Chr05=paired-11-qual-5,Chr06=paired-11-qual-6,Chr07=paired-11-qual-7,Chr08=paired-11-qual-8,Chr09=paired-11-qual-9,Chr10=paired-11-qual-10 #定义染色体的颜色(前面的染色体号Chr1-17和karyotype里的第三列完全一致)
+<<include ticks.conf>> #引入自定义的刻度配置文件，目录是相对路径
+
+##共线性图
+<links>
+
+<link>
+file          = coline_num.txt #共线性文件
+radius        = 0.70r #外圈半径
+color         = blue_a4 #默认颜色
+thickness = 1p #定义线条的粗细
+ribbon = yes
+######rules指定线条的颜色，
+<rules>
+<rule>
+condition = var(chr1) eq "Chr01" #共线性文件中，左边是Chr1的，指定颜色。
+color = paired-11-qual-1
+</rule>
+
+<rule>
+condition = var(chr1) eq "Chr02"
+color = paired-11-qual-2
+</rule>
+
+<rule>
+condition = var(chr1) eq "Chr03"
+color = paired-11-qual-3
+</rule>
+
+<rule>
+condition = var(chr1) eq "Chr04"
+color = paired-11-qual-4
+</rule>
+
+<rule>
+condition = var(chr1) eq "Chr05"
+color = paired-11-qual-5
+</rule>
+
+<rule>
+condition = var(chr1) eq "Chr06"
+color = paired-11-qual-6
+</rule>
+
+<rule>
+condition = var(chr1) eq "Chr07"
+color = paired-11-qual-7
+</rule>
+
+<rule>
+condition = var(chr1) eq "Chr08"
+color = paired-11-qual-8
+</rule>
+
+<rule>
+condition = var(chr1) eq "Chr09"
+color = paired-11-qual-9
+</rule>
+
+<rule>
+condition = var(chr1) eq "Chr10"
+color = paired-11-qual-10
+</rule>
+</rules>
+
+</link>
+</links>
+
+
+
+<plots>
+
+
+##GC含量热图
+<plot>
+type = heatmap
+file = GC_num.txt
+color   = orrd-6-seq #填充色必须是一个list，格式是 color = reds-9-seq 或者color = red,green,blue
+###log映射和线性映射2选1，或者都不使用也可以，如果数据差距过大，就可以使用log映射
+scale_log_base = 0.5 #使用log方式映射,<1,增加小数值的颜色映射动态范围，>1,增加大数值的颜色映射动态范围.默认不使用该参数。
+#color_index = num_colors*(value-min)/(max-min) #使用线性映射
+r1   = 0.80r
+r0   = 0.71r
+</plot>
+
+
+
+
+##基因密度直方图
+<plot>
+type = heatmap
+file = genes_num.txt
+color   = oranges-6-seq #填充色必须是一个list，格式是 color = reds-9-seq 或者color = red,green,blue
+###log映射和线性映射2选1，或者都不使用也可以，如果数据差距过大，就可以使用log映射
+#scale_log_base = 0.225 #使用log方式映射,<1,增加小数值的颜色映射动态范围，>1,增加大数值的颜色映射动态范围.默认不使用该参数。
+#color_index = num_colors*(value-min)/(max-min) #使用线性映射
+r1   = 0.90r
+r0   = 0.81r
+</plot>
+
+##TE重复序列密度直方图
+<plot>
+type = histogram
+file = TE.repeat_num.txt
+fill_color   = red #填充色必须是一个list，格式是 color = reds-6-seq 或者color = red,green,blue
+###log映射和线性映射2选1，或者都不使用也可以，如果数据差距过大，就可以使用log映射
+#scale_log_base = 0.225 #使用log方式映射,<1,增加小数值的颜色映射动态范围，>1,增加大数值的颜色映射动态范围.默认不使用该参数。
+#color_index = num_colors*(value-min)/(max-min) #使用线性映射
+thickness = 0p #关闭轮廓
+r1   = 0.99r
+r0   = 0.91r
+</plot>
+</plots>
+
+<ideogram>
+<spacing>
+default = 0.005r #文本和染色体骨架之间的距离
+
+#设置染色体之间空出个距离，用来标图例a,b,c,d,e,f
+<pairwise Chr10;Chr01>  #染色体名称是karyotype.Spo.txt中第3列的名称
+spacing = 5r #设置第一个和最后一个染色体中间空出5*default（0.005r）的距离
+</pairwise>
+
+</spacing>
+
+radius           = 0.85r
+thickness        = 20p #坐标轴的染色体的厚度
+fill             = yes
+show_bands      = yes #设置染色体条带填充，如果不想用条带填充，只用颜色，就设置为no
+fill_bands      = yes
+stroke_color     = dgrey #轮廓颜色
+stroke_thickness = 2p #轮廓粗细
+show_label     = yes #展示标签
+label_font     = default # 字体
+label_radius   = dims(ideogram,radius) + 0.09r #染色体标签距离圆心的距离
+label_size     = 14 # 字体大小
+label_parallel = yes # 是否平行
+label_format   = eval(sprintf("%s",var(chr))) # 格式
+
+</ideogram>
+
+<image>
+# 覆盖在 etc/image.conf 中定义的 angle_offset
+angle_offset* = -85  #指定旋转角度，用于插入图例的位置
+dir* = . #输出文件夹
+radius* = 500p #图片半径
+svg* = yes #是否输出svg,默认是yes
+<<include etc/image.conf>>
+</image>
+
+<<include etc/colors_fonts_patterns.conf>>
+<<include etc/housekeeping.conf>>
