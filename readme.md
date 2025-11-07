@@ -75,7 +75,7 @@ DrawCircos -p --genome ../genome.chr.fa --gff3 ../genome.gff3 \
 + --gff-type		指定gff3文件中第3列对应基因id的字段，一般是mRNA或gene
 + --gff-keyid		指定gff3文件中第9列对应基因id的字段的位置，一般是1或2
 + --circos_type		指定要绘制的图像的类型，可以指定类型有coline，heatmap,line,histogram,LAI。必须是这5个字符串其中之一，使用空格分开不同的值。
-+ --circos_file 	格式是：使用空格分割开不同的输出_num.txt文件的前缀"
++ --circos_file 	格式是：使用空格分割开不同的输出_num.txt文件的前缀
 
 上述参数中，`--circos_file`和`--circos_type`的参数数量必须上下一一对应，最终输出的绘图顺序，是按照--circos_file这个顺序从前到后对应从内圈到外圈。
 
