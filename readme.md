@@ -1,6 +1,15 @@
 # DrawCircos: A pipline for prepare draw circos data
+# DrawCircos: 一个自动化准备circos圈图数据的流程
+
+**程序的作用：用户准备好各种类型的输入文件，使用DrawCircos即可一键生成最终的用于circos绘图的conf文件`conf.txt`。然后使用circos -conf conf.txt即可绘制圈图**
+
+# 文件夹说明
++ demo 			存放测试模拟数据的目录，供用户参考不同文件的格式
++ DrawCircos	主程序
++ pipline.bash 	自动化流程
+
 # 1. Install 
-require software:
+### Install require software:
 - circos
 - bedtools
 - samtools
@@ -8,6 +17,15 @@ require software:
 ```
 conda create -c bioconda -n circos circos bedtools samtools -y
 source activate circos
+```
+
+### 安装DrawCircos，解压压缩包，添加执行权限，添加到全局环境变量。一定要添加到环境变量，否则程序无法正确运行。
+```
+unzip DrawCircos.zip
+chmod 755 DrawCircos
+echo 'export PATH="$PATH:'$(pwd)'"' >> ~/.bashrc
+# 重新加载配置
+source ~/.bashrc
 ```
 [circos的安装的疑难解答](https://www.jianshu.com/p/7c594d01fede)
 
