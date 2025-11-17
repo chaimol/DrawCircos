@@ -195,42 +195,42 @@ DrawCircos genedensity ${gff3} ${abbr}.window
 DrawCircos getIDbed ${gff3} ${gff_type} ${gff_keyid}
 
 ##获取共线性（输出：coline_num.txt）
-if [ -e ${coline} ];then
+if [ ! -z ${coline} ];then
 	DrawCircos getcoline ${coline} genes.bed
 fi
 
 ##获取LAI（输出：LAI_num.txt）
-if [ -e $LAI ];then
+if [ ! -z $LAI ];then
 	DrawCircos getLAI ${LAI}  #LAI_num.txt
 	DrawCircos getfullLTR ${LAI}  #full_LTR_num.txt
 	DrawCircos getallLTR ${LAI}  #LTR_num.txt
 fi
 
 ##获取重复序列 (输出：repeat_num.txt)
-if [ -e ${repeat} ];then
+if [ ! -z ${repeat} ];then
 	grep -v ^# ${repeat}|cut -f 1,4,5 >repeat.bed
 	DrawCircos bed2num repeat.bed ${abbr}.window repeat rate
 fi
 
 ##获取SNP (输出：SNP_num.txt)
-if [ -e ${SNP} ];then
+if [ ! -z ${SNP} ];then
 	DrawCircos getvcf ${SNP} ${abbr}.window SNP
 fi
 
 ##获取INDEL (输出：INDEL_num.txt)
-if [ -e ${INDEL} ];then
+if [ ! -z ${INDEL} ];then
 	DrawCircos getvcf ${INDEL} ${abbr}.window INDEL
 fi
 
 ##获取LTR(输出：)
-if [ -e ${LTR} ];then
+if [ ! -z ${LTR} ];then
 	DrawCircos getCopia ${LTR} ${abbr}.window  #Copia_num.txt
 	DrawCircos getGypsy ${LTR} ${abbr}.window  #Gypsy_num.txt
 fi
 
 ##获取表达量fpkm（输出：fpkm_num.txt）
 ###只有第一个bam文件存在时才会运行
-if [ -e ${bam[0]} ];
+if [ ! -z ${bam[0]} ];
 then
 	bamlen=${#bam[@]}
 	lenbam=`expr $bamlen - 1`

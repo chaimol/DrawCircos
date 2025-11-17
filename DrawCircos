@@ -282,7 +282,7 @@ function getvcf(){
 	local vcffile=$1
 	local windowfile=$2
 	local type=$3
-	cat ${vcffile}|awk '{print $1"\t"$2-1"\t"$2}'|sed '1d' >${type}.vcf.bed
+	cat ${vcffile}|grep -v ^#|awk '{print $1"\t"$2-1"\t"$2}' >${type}.vcf.bed
 	${bedtools} coverage -a ${windowfile} -b ${type}.vcf.bed |cut -f 1-4 >${type}_num.txt
 	if [ $? -eq 0 ];then
 		echo -e "
@@ -1873,7 +1873,7 @@ case $1 in
 	-h|--help)
 	echo -e "
 	DrawCircos :A tools for draw circos prepare data
-	Version:0.04
+	Version:0.05
 	Usage:
 	DrawCircos 
 	-h|--help 
@@ -1902,7 +1902,7 @@ case $1 in
 	-d|draw		draw conffile
 	
 	[ pipline ]
-	-p|pipline		pipline config.ini			a pipline for draw circos, all the input are set in config.ini
+	-p|pipline		pipline -h			a pipline for draw circos, use DrawCircos -p -h for help info.
 	
 	[ Require softwares ]
 	samtools, bedtools, circos
