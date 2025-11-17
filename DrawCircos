@@ -282,7 +282,9 @@ function getvcf(){
 	local vcffile=$1
 	local windowfile=$2
 	local type=$3
-	cat ${vcffile}|grep -v ^#|awk '{print $1"\t"$2-1"\t"$2}' >${type}.vcf.bed
+	#新增的逻辑，首先是只选择非注释行，然后计算位置信息，最后删除位置中有负数的行，因为有的时候有的行可能会出现负数的位置
+	cat ${vcffile}|grep -v ^#|awk '{print $1"\t"$2-1"\t"$2}'|grep -v -- '-[0-9]' >${type}.vcf.bed
+	
 	${bedtools} coverage -a ${windowfile} -b ${type}.vcf.bed |cut -f 1-4 >${type}_num.txt
 	if [ $? -eq 0 ];then
 		echo -e "
