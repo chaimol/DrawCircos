@@ -200,5 +200,4 @@ Author Email: chaimol@163.com
 - 修复了其中注释文件的部分错别字。
 - 新增了绘制LAI的功能。
 - 新增pipline功能，用户一次性输入所有参数后，可以直接完成所有分析，直接绘图。删除了config.ini的传参方式，只接受命令行传参。
-#### 2026.09.30 release the Version to 0.05.1
-- 修复了vcf文件类型判断，支持vcf和vcf.gz两种格式
+
